@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+  PYTHON_BIN="$SCRIPT_DIR/.venv/bin/python"
+elif [ -x "$SCRIPT_DIR/.venv/Scripts/python.exe" ]; then
+  PYTHON_BIN="$SCRIPT_DIR/.venv/Scripts/python.exe"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+else
+  PYTHON_BIN="python3"
+fi
+
+exec "$PYTHON_BIN" "$SCRIPT_DIR/app/cli_copybot.py" "$@"

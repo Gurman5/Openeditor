@@ -1,0 +1,58 @@
+# Environment variables — never commit secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+.venv-wsl/
+venv/
+env/
+ENV/
+
+# CrossRef API disk cache (dev/testing only — delete to force fresh fetches)
+app/services/.crossref_cache.json
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# Sample documents (large binaries)
+docs/Sample Documents/
+tests/generated_outputs
+tests/section_sepcif_docs_for_testing
+# NOTE: tests/jutlp_sample_docx_test_pack is NOT ignored — it holds the
+# numbered fixtures (01–06) that the test suite depends on. Keep it tracked.
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Microsoft Office lock / temp files (e.g. ~$Document.docx)
+~$*.docx
+~$*.doc
+~$*.xlsx
+~$*.pptx

@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, testing, "release/**", "hotfix/**"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".gitignore"
+      - "LICENSE"
+  pull_request:
+    branches: [main, develop, testing, "release/**"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".gitignore"
+      - "LICENSE"
+  # Allow manual re-runs from the Actions tab for ad-hoc checks.
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref. The full suite takes ~45 s and
+# rapid pushes (e.g. iterating on a PR) would otherwise queue duplicates.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege: the workflow only reads repo contents — no need for
+# write tokens, packages, or deployments.
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: Lint & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the project's declared target (ruff.toml). 3.13 matches
+        # Railway's production runtime — keep both green so a Railway
+        # rebuild can't surprise us.
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff pytest pytest-cov
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Verify required test fixtures are present
+        # The suite hard-depends on the numbered sample docx fixtures. If one
+        # is ever deleted again (they were once removed by an over-zealous
+        # .gitignore, erroring ~60 tests with a confusing PackageNotFoundError),
+        # fail here with a clear message instead.
+        run: |
+          missing=0
+          pack="tests/jutlp_sample_docx_test_pack"
+          for f in 01_valid_identified 02_missing_method_subsection \
+                   03_front_page_issues 04_structure_and_endmatter_issues \
+                   05_valid_deidentified 06_deidentified_with_author_leak; do
+            if [ ! -f "$pack/$f.docx" ]; then
+              echo "::error::Missing required test fixture: $pack/$f.docx"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Required sample-docx fixtures are missing. They must stay tracked in git"
+            echo "(do NOT add $pack to .gitignore). Restore them and re-run."
+            exit 1
+          fi
+          echo "All required test fixtures present."
+
+      - name: Run tests
+        # Tests stub the LLM client via monkeypatch, so OPENAI_API_KEY is
+        # not required. If a test starts hitting the real API it should be
+        # marked and excluded here.
+        run: |
+          pytest tests/ --cov=app --cov-report=term-missing --cov-report=xml -v
+
+      - name: Upload coverage report
+        # Only upload from the 3.13 leg to avoid two artifacts with the
+        # same name clashing on the matrix run.
+        if: matrix.python-version == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 14

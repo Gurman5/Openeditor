@@ -1,0 +1,1 @@
+"""CopyEditor AI application package."""

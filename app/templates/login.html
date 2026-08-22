@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in &mdash; CopyEditor AI &mdash; OAPA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ── Header ──────────────────────────────────── -->
+  <header class="site-header">
+    <div class="wordmark">
+      <img src="{{ url_for('static', filename='oapa-logo.png') }}" alt="OAPA" class="oapa-logo">
+    </div>
+    <span class="oapa-badge">OAPA &middot; Scholarly Tools</span>
+  </header>
+
+  <!-- ── CARD ────────────────────────────────────── -->
+  <div class="card">
+
+    <form id="phase-password" class="card-body phase" method="post" action="{{ url_for('login_submit') }}" style="display:flex">
+      <div class="lock-icon">
+        <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="10" width="16" height="10" rx="2"/>
+          <path d="M7 10V7a4 4 0 0 1 8 0v3"/>
+          <circle cx="11" cy="15" r="1" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      <p class="section-eyebrow">Restricted Access</p>
+      <h1 class="section-title">Editorial <em>access</em> only.</h1>
+      <p class="section-sub">This tool is provided to OAPA editors and authorised users. Enter your access code to continue.</p>
+
+      <label class="field-label" for="pw-input">Access Code</label>
+      <input
+        class="field-input{% if error %} error{% endif %}"
+        type="password"
+        id="pw-input"
+        name="password"
+        placeholder="Enter access code…"
+        autocomplete="current-password"
+        autofocus
+        required
+      >
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <div class="error-msg{% if error %} show{% endif %}" id="pw-error">{{ error or "Incorrect access code. Please try again." }}</div>
+
+      <button class="btn-primary" type="submit">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Continue
+      </button>
+
+      <div class="gate-footer">
+        Access is restricted to authorised OAPA editors and reviewers.<br>
+        Contact your journal coordinator if you need access.
+      </div>
+    </form>
+
+  </div>
+
+</div>
+
+</body>
+</html>

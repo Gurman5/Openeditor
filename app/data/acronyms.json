@@ -1,0 +1,22 @@
+{
+  "_comment": "Approved acronyms. Edit via the /settings/acronyms admin page or directly here. Each entry maps an acronym to one or more accepted full forms. The detection pass leaves these alone; everything else gets a Word comment (and a track-change expansion when the full form is known).",
+  "acronyms": {
+    "LMS": ["learning management system"],
+    "TEQSA": ["Tertiary Education Quality and Standards Authority"],
+    "GenAI": ["Generative Artificial Intelligence"],
+    "PVC": ["Pro-Vice Chancellor"],
+    "VC": ["Vice Chancellor"],
+    "ICT": ["Information and Computer Technologies", "Information Technologies"],
+    "HDR": ["Higher Degree by Research", "Research by Higher Degree"],
+    "FYE": ["First Year Experience"],
+    "AQF": ["Australian Qualification Framework"],
+    "STEM": ["Science, Technology, Engineering and Mathematics"],
+    "SoTL": ["Scholarship of Teaching and Learning"],
+    "GPA": ["Grade Point Average"],
+    "MOOC": ["Massive Open Online Course"],
+    "STEAM": ["Science, Technology, Engineering, Arts and Mathematics"],
+    "OECD": ["Organisation for Economic Co-operation and Development"],
+    "UNESCO": ["United Nations Educational, Scientific and Cultural Organization"],
+    "HESF": ["Higher Education Standards Framework"]
+  }
+}

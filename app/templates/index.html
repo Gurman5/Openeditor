@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CopyEditor AI — OAPA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ── Header ──────────────────────────────────── -->
+  <header class="site-header">
+    <div class="wordmark">
+      <img src="{{ url_for('static', filename='oapa-logo.png') }}" alt="OAPA" class="oapa-logo">
+    </div>
+    <span class="oapa-badge">OAPA · Scholarly Tools</span>
+    <a href="/settings/acronyms" style="margin-left:auto; font-family:'IBM Plex Sans',system-ui,sans-serif; font-size:13px; color:#555; text-decoration:none;">Acronym list</a>
+  </header>
+
+  <!-- ── CARD ────────────────────────────────────── -->
+  <div class="card">
+
+    <!-- ══ PHASE 1: Upload ══ -->
+    <!-- Phase 0 (password) is now handled server-side via /login (see app/templates/login.html). -->
+    <!-- Visiting / when not authenticated redirects to /login automatically. -->
+
+    <div id="phase-upload" class="card-body phase">
+      <p class="section-eyebrow">Manuscript Submission</p>
+      <h1 class="section-title">Upload your <em>manuscript.</em></h1>
+      <p class="section-sub">Submit a Word document to receive an annotated copy with inline editorial comments covering structure, references, and AI-powered content review.</p>
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".docx,.doc">
+        <div class="dz-icon">📄</div>
+        <div class="dz-title">Drop your document here</div>
+        <div class="dz-sub">or click to browse</div>
+        <div class="dz-formats">
+          <span class="dz-pill">.docx</span>
+          <span class="dz-pill">.doc</span>
+          <span class="dz-pill">Max 10 MB</span>
+        </div>
+      </div>
+
+      <div class="file-selected" id="file-selected">
+        <div class="file-docx-icon">DOCX</div>
+        <div class="file-meta">
+          <div class="file-name" id="sel-name">—</div>
+          <div class="file-size" id="sel-size">—</div>
+        </div>
+        <button class="file-remove" onclick="removeFile()" title="Remove">✕</button>
+      </div>
+
+      <button class="btn-primary" id="submit-btn" onclick="startProcessing()" disabled>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M3 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Generate Editorial Report
+      </button>
+
+      <!-- Surfaced when an upload is rejected (e.g. too long) or the analysis
+           fails / times out, so the user sees why instead of a silent reset. -->
+      <div class="stage-error-banner" id="upload-error" hidden></div>
+    </div>
+
+    <!-- ══ PHASE 2: Processing ══ -->
+    <div id="phase-processing" class="phase">
+      <p class="proc-title">Reviewing your <em>manuscript.</em></p>
+      <p class="proc-doc-name" id="proc-doc-name">document.docx</p>
+
+      <div class="proc-steps">
+        <div class="proc-step" id="step-structure">
+          <div class="step-dot">1</div>
+          <span class="step-label">Running structural checks</span>
+        </div>
+        <div class="proc-step" id="step-refs">
+          <div class="step-dot">2</div>
+          <span class="step-label">Verifying references via CrossRef</span>
+        </div>
+        <div class="proc-step" id="step-llm">
+          <div class="step-dot">3</div>
+          <span class="step-label">Running AI editorial review</span>
+        </div>
+        <div class="proc-step" id="step-doc">
+          <div class="step-dot">4</div>
+          <span class="step-label">Preparing annotated document</span>
+        </div>
+      </div>
+
+      <div class="proc-progress-wrap">
+        <div class="proc-progress-bar" id="proc-progress"></div>
+      </div>
+      <div class="proc-pct" id="proc-pct">0%</div>
+
+      <div class="proc-timer-row">
+        <span class="proc-est-label">This will take 5-10 minutes</span>
+        <span class="proc-elapsed" id="proc-timer">0s elapsed</span>
+      </div>
+      <button class="proc-cancel-btn" id="proc-cancel-btn" type="button" onclick="cancelProcessing()">
+        Cancel review
+      </button>
+
+      <div class="wait-article" id="jutlp-article-card" aria-live="polite">
+        <p class="wait-article-kicker">While you wait</p>
+        <h2 class="wait-article-title" id="jutlp-article-title">
+          The Artificial Intelligence Assessment Scale (AIAS): A Framework for Ethical Integration of Generative AI in Educational Assessment
+        </h2>
+        <p class="wait-article-author" id="jutlp-article-author">
+          Mike Perkins, Leon Furze, Jasper Roe, Jason MacVaugh
+        </p>
+        <p class="wait-article-abstract" id="jutlp-article-abstract">
+          This JUTLP article introduces the AI Assessment Scale as a practical framework for deciding when and how generative AI can be used in educational assessment.
+        </p>
+        <div class="wait-article-actions">
+          <a class="wait-article-link" id="jutlp-article-link" href="https://open-publishing.org/journals/index.php/jutlp/article/view/810/769" target="_blank" rel="noopener">
+            Read article
+          </a>
+          <button class="wait-article-next" id="jutlp-article-next" type="button">
+            Next article
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ PHASE 3: Result ══ -->
+    <div id="phase-result" class="phase">
+      <div class="result-success-bar">
+        <div class="success-icon">✓</div>
+        <div>
+          <div class="success-text">Review complete</div>
+          <div class="success-sub" id="res-filename">manuscript_reviewed.docx</div>
+        </div>
+      </div>
+      <div class="result-body">
+
+        <!-- Stats summary -->
+        <div class="summary-grid">
+          <div class="summary-cell">
+            <span class="summary-n" id="res-total">—</span>
+            <span class="summary-l">Total Issues</span>
+          </div>
+          <div class="summary-cell">
+            <span class="summary-n" id="res-high" style="color: var(--red)">—</span>
+            <span class="summary-l">Critical</span>
+          </div>
+          <div class="summary-cell">
+            <span class="summary-n" id="res-refs-verified">—</span>
+            <span class="summary-l">Refs Verified</span>
+          </div>
+          <div class="summary-cell">
+            <span class="summary-n" id="res-refs-failed" style="color: var(--red)">—</span>
+            <span class="summary-l">Refs Failed</span>
+          </div>
+        </div>
+
+        <!-- Category bars -->
+        <div class="cat-breakdown" id="cat-breakdown">
+          <div class="cat-row">
+            <span class="cat-label">Structure</span>
+            <div class="cat-bar-wrap"><div class="cat-bar bar-grammar" id="bar-structure" style="width:0%"></div></div>
+            <span class="cat-count" id="cnt-structure">0</span>
+          </div>
+          <div class="cat-row">
+            <span class="cat-label">Front Page</span>
+            <div class="cat-bar-wrap"><div class="cat-bar bar-clarity" id="bar-frontpage" style="width:0%"></div></div>
+            <span class="cat-count" id="cnt-frontpage">0</span>
+          </div>
+          <div class="cat-row" id="cat-row-style" hidden>
+            <span class="cat-label">Style</span>
+            <div class="cat-bar-wrap"><div class="cat-bar bar-tone" id="bar-style" style="width:0%"></div></div>
+            <span class="cat-count" id="cnt-style">0</span>
+          </div>
+          <div class="cat-row">
+            <span class="cat-label">References</span>
+            <div class="cat-bar-wrap"><div class="cat-bar bar-ref" id="bar-references" style="width:0%"></div></div>
+            <span class="cat-count" id="cnt-references">0</span>
+          </div>
+          <div class="cat-row">
+            <span class="cat-label">Editorial</span>
+            <div class="cat-bar-wrap"><div class="cat-bar bar-editorial" id="bar-editorial" style="width:0%"></div></div>
+            <span class="cat-count" id="cnt-editorial">0</span>
+          </div>
+        </div>
+
+        <!-- Stage-error banner: shown only when one or more post-processing
+             stages (acronyms, decimals, hyperlinks, …) failed silently. -->
+        <div class="stage-error-banner" id="stage-error-banner" hidden></div>
+
+        <!-- Tab bar -->
+        <div class="result-tabs">
+          <button class="tab-btn active" data-tab="editorial">
+            Editorial
+            <span class="tab-count" id="tc-editorial">—</span>
+          </button>
+          <button class="tab-btn" data-tab="structure">
+            Structure
+            <span class="tab-count" id="tc-structure">—</span>
+          </button>
+          <button class="tab-btn" data-tab="language">
+            Language
+            <span class="tab-count" id="tc-language">—</span>
+          </button>
+          <button class="tab-btn" data-tab="references">
+            References
+            <span class="tab-count" id="tc-references">—</span>
+          </button>
+        </div>
+
+        <!-- Structure tab -->
+        <div class="tab-panel" id="tab-structure">
+          <p class="tab-context">This section checks that your manuscript follows the JUTLP template, required sections, front-page elements, headings, and formatting. These are structural conventions the journal expects before publication.</p>
+          <div class="issues-section" id="issues-section" style="display:none">
+            <div class="issues-heading">Structural &amp; Style Issues</div>
+            <div class="issues-list" id="issues-list"></div>
+          </div>
+          <div class="issues-section" id="sam-section" style="display:none">
+            <div class="issues-heading">Format &amp; Style Checks</div>
+            <div class="issues-list" id="sam-list"></div>
+          </div>
+          <div class="tab-empty" id="tab-empty-structure" style="display:none">No structural issues found.</div>
+        </div>
+
+        <!-- Editorial tab -->
+        <div class="tab-panel active" id="tab-editorial">
+          <p class="tab-context">This section is designed to support editor development. Typically, most of the comments provided here should be resolved during the peer-review process. They are suggestions for strengthening the manuscript, not mandatory fixes.</p>
+          <div class="issues-section" id="llm-section" style="display:none">
+            <div class="issues-heading">AI Editorial Notes</div>
+            <div class="issues-list" id="llm-list"></div>
+          </div>
+          <div class="tab-empty" id="tab-empty-editorial" style="display:none">No editorial notes.</div>
+        </div>
+
+        <!-- Language tab -->
+        <div class="tab-panel" id="tab-language">
+          <p class="tab-context">This section checks spelling, Australian English usage, and acronym definitions, and applies them as tracked changes you can accept or reject in Word. The acronym list may be extended in future to recognise common discipline acronyms automatically.</p>
+          <div class="issues-section" id="lang-section" style="display:none">
+            <div class="issues-heading">Language Corrections <span class="issues-sub">Applied as tracked changes — accept or reject in Word</span></div>
+            <div class="issues-list" id="lang-list"></div>
+          </div>
+          <div class="tab-empty" id="tab-empty-language" style="display:none">No language corrections.</div>
+        </div>
+
+        <!-- References tab -->
+        <div class="tab-panel" id="tab-references">
+          <p class="tab-context">This section checks your in-text citations and reference list for consistency and verifies entries against CrossRef. Use it to catch missing references, uncited entries, and invalid DOIs before submission.</p>
+          <div class="issues-section" id="cons-section" style="display:none">
+            <div class="issues-heading">Citation Consistency</div>
+            <div class="issues-list" id="cons-list"></div>
+          </div>
+          <div class="issues-section" id="alpha-section" style="display:none">
+            <div class="issues-heading">Alphabetical Order</div>
+            <div class="issues-list" id="alpha-list"></div>
+          </div>
+          <div class="issues-section" id="refs-section" style="display:none">
+            <div class="issues-heading">Reference Verification (CrossRef)</div>
+            <div class="issues-list" id="refs-list"></div>
+          </div>
+          <div class="tab-empty" id="tab-empty-references" style="display:none">No reference results.</div>
+        </div>
+
+        <!-- Download -->
+        <button class="download-btn" id="download-btn" onclick="triggerDownload()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.5 7l3.5 3.5L11.5 7M2 12h12"/></svg>
+          Download Reviewed Document
+        </button>
+        <div class="download-sub">
+          Word document with inline comments · open in Microsoft Word
+        </div>
+
+        <button class="start-over" onclick="startOver()">
+          ↩ Submit another document
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /card -->
+
+  <!-- ── Footer ──────────────────────────────────── -->
+  <footer class="site-footer">
+    CopyEditor AI is an editorial assistance tool only.<br>
+    It does not generate content, fabricate citations, or alter your argument.<br>
+    Open Access Publishing Association · Not-for-profit
+  </footer>
+
+</div><!-- /page -->
+</body>
+</html>

@@ -1,0 +1,13 @@
+[Unit]
+Description=CopyEditor AI - OAPA
+After=network.target
+
+[Service]
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/copy-editor-ai
+ExecStart=/home/YOUR_USERNAME/copy-editor-ai/venv/bin/gunicorn --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:5008 app.main:app
+Restart=always
+EnvironmentFile=/home/YOUR_USERNAME/copy-editor-ai/.env
+
+[Install]
+WantedBy=multi-user.target

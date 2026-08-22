@@ -1,0 +1,12 @@
+python-docx
+docx2python
+requests
+flask
+openai
+python-dotenv
+pyspellchecker
+gunicorn
+flasgger
+flask-cors
+flask-limiter
+tzdata

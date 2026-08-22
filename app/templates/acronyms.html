@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acronym list &mdash; CopyEditor AI &mdash; OAPA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .acro-page { max-width: 880px; margin: 32px auto; padding: 0 20px; font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+    .acro-page h1 { font-family: 'Instrument Serif', serif; font-size: 32px; margin: 0 0 4px; }
+    .acro-page p.lede { color: #555; margin: 0 0 24px; }
+    .acro-page .panel { background: #fff; border: 1px solid #e3e3e3; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .acro-page table { width: 100%; border-collapse: collapse; }
+    .acro-page th, .acro-page td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+    .acro-page th { font-weight: 500; color: #777; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .acro-page td.acro { font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+    .acro-page td.actions { width: 80px; text-align: right; }
+    .acro-page button { font-family: inherit; font-size: 14px; padding: 6px 12px; border: 1px solid #d0d0d0; background: #fff; border-radius: 6px; cursor: pointer; }
+    .acro-page button:hover { background: #f4f4f4; }
+    .acro-page button.danger { color: #b00; border-color: #e8c8c8; }
+    .acro-page button.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+    .acro-page button.primary:hover { background: #000; }
+    .acro-page form.add-row { display: grid; grid-template-columns: 160px 1fr auto; gap: 10px; align-items: start; }
+    .acro-page input[type=text] { font: inherit; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    .acro-page .hint { font-size: 13px; color: #777; margin-top: 6px; }
+    .acro-page .err { color: #b00; font-size: 14px; margin-top: 8px; min-height: 1em; }
+    .acro-page .home-link { display: inline-block; margin-bottom: 16px; color: #555; text-decoration: none; font-size: 14px; }
+    .acro-page .home-link:hover { text-decoration: underline; }
+    .acro-page .deploy-note { background: #fff8e1; border: 1px solid #ffe39c; padding: 10px 14px; border-radius: 6px; font-size: 13px; color: #6a4f00; }
+  </style>
+</head>
+<body>
+  <div class="acro-page">
+    <a class="home-link" href="/">&larr; Back to upload</a>
+    <h1>Approved acronyms</h1>
+    <p class="lede">
+      Acronyms in this list are accepted as-is. Anything else found in a paper
+      is flagged with a Word comment, and track-change-expanded when the full
+      form is known.
+    </p>
+
+    {% if not persistent_storage %}
+    <div class="panel deploy-note">
+      Heads up &mdash; on Railway the default filesystem is ephemeral, so edits
+      reset on every redeploy. Mount a Railway volume and set
+      <code>ACRONYM_DB_PATH</code> to a file inside it for changes to persist.
+    </div>
+    {% endif %}
+
+    {% if admin_required and not admin_authed %}
+    <div class="panel">
+      <h2 style="margin:0 0 6px; font-size:16px;">Editor sign-in</h2>
+      <p style="margin:0 0 12px; color:#555; font-size:14px;">
+        This list can be edited by approved editors only. Enter the editor
+        password to add or remove acronyms.
+      </p>
+      <form method="post" action="{{ url_for('acronyms_admin_login') }}" class="add-row">
+        <input type="password" name="admin_password" placeholder="Editor password" autocomplete="current-password" required>
+        <span></span>
+        <button type="submit" class="primary">Unlock</button>
+      </form>
+      {% if admin_login_error %}
+        <div class="err">{{ admin_login_error }}</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if not admin_required or admin_authed %}
+    <div class="panel">
+      <h2 style="margin:0 0 12px; font-size:16px;">Add a new acronym</h2>
+      <form class="add-row" id="add-form">
+        <input type="text" id="new-key" placeholder="ACRONYM" autocomplete="off" required>
+        <input type="text" id="new-expansions" placeholder="Full form (separate alternates with |)" required>
+        <button type="submit" class="primary">Add</button>
+      </form>
+      <div class="hint">
+        Use <code>|</code> to record multiple accepted expansions.
+        Example: <code>HDR  =  Higher Degree by Research | Research by Higher Degree</code>
+      </div>
+      <div class="err" id="add-error"></div>
+    </div>
+
+    <div class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 160px;">Acronym</th>
+            <th>Accepted expansion(s)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="acro-rows">
+          <tr><td colspan="3" style="color:#999;">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {% if admin_required and admin_authed %}
+    <div style="margin: 8px 0 24px; text-align: right;">
+      <form method="post" action="{{ url_for('acronyms_admin_logout') }}" style="display:inline;">
+        <button type="submit">Sign out as editor</button>
+      </form>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const tbody = $("#acro-rows");
+    const errEl = $("#add-error");
+    const addForm = $("#add-form");
+
+    // When the editor isn't authed yet the table + add form aren't on the
+    // page — bail out cleanly so we don't litter the console with errors.
+    if (!tbody || !addForm) {
+      // No editor UI rendered; nothing to wire up.
+    } else {
+
+    async function fetchAcronyms() {
+      const res = await fetch("/api/acronyms");
+      if (!res.ok) {
+        tbody.innerHTML = `<tr><td colspan="3" style="color:#b00;">Failed to load (${res.status}).</td></tr>`;
+        return;
+      }
+      const data = await res.json();
+      render(data.acronyms || {});
+    }
+
+    function render(acronyms) {
+      const keys = Object.keys(acronyms).sort((a, b) => a.localeCompare(b));
+      if (!keys.length) {
+        tbody.innerHTML = `<tr><td colspan="3" style="color:#999;">No acronyms in the list.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = "";
+      for (const k of keys) {
+        const tr = document.createElement("tr");
+        const expansions = (acronyms[k] || []).join(" | ");
+        tr.innerHTML = `
+          <td class="acro"></td>
+          <td class="exp"></td>
+          <td class="actions"><button class="danger">Remove</button></td>
+        `;
+        tr.querySelector(".acro").textContent = k;
+        tr.querySelector(".exp").textContent = expansions;
+        tr.querySelector("button.danger").addEventListener("click", () => removeOne(k));
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function removeOne(key) {
+      if (!confirm(`Remove ${key} from the accepted list?`)) return;
+      const res = await fetch(`/api/acronyms/${encodeURIComponent(key)}`, { method: "DELETE" });
+      if (!res.ok) {
+        alert(`Could not delete (${res.status}).`);
+        return;
+      }
+      const data = await res.json();
+      render(data.acronyms || {});
+    }
+
+    addForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      errEl.textContent = "";
+      const key = $("#new-key").value.trim();
+      const expansionsRaw = $("#new-expansions").value.trim();
+      if (!key || !expansionsRaw) {
+        errEl.textContent = "Both fields are required.";
+        return;
+      }
+      const expansions = expansionsRaw.split("|").map(s => s.trim()).filter(Boolean);
+      const res = await fetch("/api/acronyms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, expansions }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        errEl.textContent = data.error || `Could not add (${res.status}).`;
+        return;
+      }
+      const data = await res.json();
+      render(data.acronyms || {});
+      $("#new-key").value = "";
+      $("#new-expansions").value = "";
+      $("#new-key").focus();
+    });
+
+    fetchAcronyms();
+    }
+  </script>
+</body>
+</html>
