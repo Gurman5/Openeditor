@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: try_ingestion.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/try_ingestion.py",
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}/venv/Scripts/python.exe"
+    },
+    {
+      "name": "Debug: current file",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}/venv/Scripts/python.exe"
+    }
+  ]
+}
