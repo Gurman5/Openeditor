@@ -2,7 +2,7 @@ python-docx
 docx2python
 requests
 flask
-openai
+openai==0.28.1
 python-dotenv
 pyspellchecker
 gunicorn

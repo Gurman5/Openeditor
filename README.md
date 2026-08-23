@@ -1,4 +1,5 @@
-# copy-editor-ai
+# Open-Editor Bot
+> A.k.a **copy-editor-ai** (coined name from last semester team)  
 
 Flask web app for reviewing JUTLP `.docx` manuscripts.
 
@@ -20,7 +21,17 @@ FirstAuthorLastName_JUTLP_Year_CopyEdit1.docx
 ```
 
 ## Local Setup
+### Windows
 
+```shell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+### Linux
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
