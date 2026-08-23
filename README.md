@@ -49,13 +49,13 @@ OPENAI_API_KEY=your-key-here
 Run locally:
 
 ```bash
-python app/main.py
+python -m app.main 
 ```
 
 Open:
 
 ```text
-http://127.0.0.1:5008
+http://127.0.0.1:5009
 ```
 
 ## Railway Deployment
