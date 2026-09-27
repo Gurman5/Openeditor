@@ -515,6 +515,8 @@ def parse_docx(docx_path: str) -> dict:
         "sections": _generic_sections(paragraphs),
         "word_count": word_count(full_text),
         "styles": count_styles(paragraphs),
+        "tables": [],
+        "references":[],
         "metadata": {},
     }
 
