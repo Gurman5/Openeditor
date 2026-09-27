@@ -21,7 +21,6 @@ from app.services.decimal_corrections import apply_decimal_corrections
 from app.services.document_normalisation_services import normalise_docx
 from app.services.grammar_corrections import apply_contingent_grammar_comments
 from app.services.heading_corrections import apply_heading_corrections
-from app.services.jutlp_validator import validate
 from app.services.language_corrections import AUTHOR, DATE, apply_au_spelling_corrections
 from app.services.number_word_corrections import apply_number_word_corrections
 from app.services.output_generation import (
@@ -704,15 +703,15 @@ def doc_analysis_pipeline(
             docx_path = original_docx_path
 
         # ── Phase 1: Run all independent analysis tasks in parallel ─────────────────
+        #JUTLP structural validation removed (H-07)
+        # still takes a raw docx path and re parses internally
         _progress(15, "structure")
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            f_validate  = executor.submit(validate, docx_path)
-            f_ref       = executor.submit(check_and_report, docx_path)
+        ref_check_result = check_and_report(docx_path)
+        _progress(42,"refs")
 
-            deterministic_check_results = f_validate.result()
-            _progress(30, "refs")
-            ref_check_result            = f_ref.result()
-            _progress(42, "refs")
+        #Placeholder so rest of the pipeline doesn't break. 
+        # TODO: remove once sections D-G replace these downstream references
+        deterministic_check_results={"results":[]}
 
         # ── Phase 2: LLM editorial review (needs validate + ref results) ─────────
         _progress(48, "llm")
