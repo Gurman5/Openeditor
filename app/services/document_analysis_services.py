@@ -490,6 +490,86 @@ def parse_docx_structure(docx_path: str) -> dict:
     }
 
 
+#no journal specific assumption just a generic parse of a .docx file.
+def parse_docx(docx_path: str) -> dict:
+    #doesn't look at what journal the doc is written for. Just reports whats in the file
+    paragraphs = load_paragraphs(docx_path)
+
+    paragraph_dicts = [
+        {
+            "index": p.index,
+            "text": p.text,
+            "style": p.style,
+            "level": _heading_level(p.style),
+            "is_heading": p.style.startswith("Heading") or p.is_all_bold,
+            "is_empty": p.is_empty,
+        }
+        for p in paragraphs
+    ]
+
+    full_text = "\n".join(p.text for p in paragraphs if not p.is_empty)
+
+    return {
+        "filename": Path(docx_path).name,
+        "paragraphs": paragraph_dicts,
+        "sections": _generic_sections(paragraphs),
+        "word_count": word_count(full_text),
+        "styles": count_styles(paragraphs),
+        "metadata": {},
+    }
+
+def _heading_level(style: str) -> int | None:
+    """Return 1/2/3/4 for 'Heading N' styles, else None."""
+    if style and style.startswith("Heading "):
+        try:
+            return int(style.removeprefix("Heading ").strip())
+        except ValueError:
+            return None
+    return None
+
+def _top_heading_level(paragraphs: list[ParagraphRecord]) -> int | None:
+    """Return the heading level used most often in the document to split the document into sections.
+
+    Heuristic — revisit once tested against real, non-JUTLP documents.
+    """
+    levels = [_heading_level(p.style) for p in paragraphs if not p.is_empty]
+    levels = [lvl for lvl in levels if lvl is not None]
+    if not levels:
+        return None
+
+    counts: dict[int, int] = {}
+    for lvl in levels:
+        counts[lvl] = counts.get(lvl, 0) + 1
+
+    repeated = {lvl: c for lvl, c in counts.items() if c > 1}
+    if repeated:
+        return min(repeated)
+
+    return min(counts)
+
+def _generic_sections(paragraphs: list[ParagraphRecord]) -> list[dict]:
+    """Section boundaries based on which heading level is the documents top level — no journal-specific
+    name matching, unlike get_section_bounds()."""
+    top_level = _top_heading_level(paragraphs)
+    if top_level is None:
+        return []
+
+    heading_positions = [
+        p.index for p in paragraphs
+        if _heading_level(p.style) == top_level and not p.is_empty
+    ]
+    titles = {p.index: p.text for p in paragraphs}
+
+    sections = []
+    for i, start in enumerate(heading_positions):
+        end = heading_positions[i + 1] if i + 1 < len(heading_positions) else len(paragraphs)
+        sections.append({
+            "title": titles[start],
+            "start": start,
+            "end": end,
+            "paragraph_indexes": [p.index for p in paragraphs if start <= p.index < end],
+        })
+    return sections
 if __name__ == "__main__":
     parsed = parse_docx_structure("tests/jutlp_sample_docx_test_pack/01_valid_identified.docx")
     from pprint import pprint
