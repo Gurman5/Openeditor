@@ -59,3 +59,17 @@ Thumbs.db
 
 # Cache from
 graphify-out/**/cache/
+
+# graphify auto-backups, one dir per run date (e.g. graphify-out/2026-09-29/).
+# Overwritten each run, so they are a local safety net, not history.
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+
+# graphify scratch sidecars - regenerated on every run, never worth committing
+graphify-out/.graphify_incremental.json
+graphify-out/.graphify_labels.json.sig
+
+# Machine-local: absolute interpreter path, scan root, personal token tracker.
+# Meaningless on any other clone, so keep them out of the shared repo.
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/cost.json
