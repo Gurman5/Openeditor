@@ -56,3 +56,6 @@ Thumbs.db
 ~$*.doc
 ~$*.xlsx
 ~$*.pptx
+
+# Cache from
+graphify-out/**/cache/
