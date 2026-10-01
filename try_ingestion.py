@@ -1,4 +1,7 @@
+import hashlib
+import zipfile
 from pathlib import Path
+
 from app.services.document_injestion_services import read_docx
 
 for filename in ["tmp_banner_input.docx", "tmp_textbox_input.docx", "tmp_textbox_output.docx"]:
@@ -20,7 +23,7 @@ if "Institution" in xml_str:
 else:
     print("Not found in XML at all — different explanation needed")
 
-import hashlib
+
 
 def file_hash(path):
     with open(path, 'rb') as f:
@@ -46,7 +49,6 @@ print(f"banner_input XML length: {len(banner_xml)}")
 print(f"textbox_input XML length: {len(textbox_xml)}")
 print(f"Are they identical? {banner_xml == textbox_xml}")
 
-import zipfile
 
 print(f"\n{'='*50}")
 print("ZIP CONTENTS COMPARISON")

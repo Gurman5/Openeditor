@@ -385,3 +385,21 @@ def test_unstyled_discussion_subsections_detected(tmp_path):
 
     paragraphs = load_paragraphs(str(docx_path))
     assert "Practical Implications" in extract_subsections(paragraphs, "Discussion")
+
+def test_parse_docx_finds_sections_by_heading_2(tmp_path):
+    """parse_docx should detect Heading 2 as the section level when that's
+    what the document actually uses, not just Heading 1."""
+    docx_path = tmp_path / "h2_sections.docx"
+    doc = Document()
+    doc.add_paragraph("My Paper Title", style="Heading 1")  # appears once
+    doc.add_paragraph("Introduction", style="Heading 2")
+    doc.add_paragraph("Intro body.", style="Normal")
+    doc.add_paragraph("Method", style="Heading 2")
+    doc.add_paragraph("Method body.", style="Normal")
+    doc.save(docx_path)
+
+    from app.services.document_analysis_services import parse_docx
+    parsed = parse_docx(str(docx_path))
+
+    titles = [s["title"] for s in parsed["sections"]]
+    assert titles == ["Introduction", "Method"]

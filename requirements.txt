@@ -10,3 +10,5 @@ flasgger
 flask-cors
 flask-limiter
 tzdata
+pytest
+pytest-cov
