@@ -80,8 +80,11 @@ document.addEventListener('alpine:init', () => {
       if (!file.name.toLowerCase().endsWith('.docx')) {
         return fail('This file type is not supported. Please upload a Microsoft Word document (.docx).');
       }
-      if (file.size > 20 * 1024 * 1024) {
-        return fail('This file is larger than 20 MB. Please upload a smaller file.');
+
+      const maxMb = window.MAX_UPLOAD_MB || 20;
+
+      if (file.size > maxMb * 1024 * 1024) {
+        return fail(`This file is larger than ${maxMb} MB. Please upload a smaller file.`);
       }
 
       const readable = await this.checkReadable(file);

@@ -59,7 +59,7 @@
             </div>
           </template>
   
-          <div class="oe-dz-pill">.docx only &middot; 20 MB MAXIMUM &middot; 15,000 words MAXIMUM</div>
+          <div class="oe-dz-pill">.docx &bull; up to {{ max_upload_mb }} MB &bull; up to {{ max_word_count }} words</div>
         </label>
         
         <p class="oe-error-text" x-show="fileError" x-text="fileError"></p>
@@ -199,16 +199,21 @@
 </div>
  
 <script>
-  function updateFrameScale() {
-    const scaleX = window.innerWidth / 1440;
-    const scaleY = window.innerHeight / 900;
-    const scale = Math.min(scaleX, scaleY, 1); // never scale up, only down
-    document.documentElement.style.setProperty('--oe-scale', scale);
-  }
-  window.addEventListener('resize', updateFrameScale);
-  updateFrameScale();
+  window.MAX_UPLOAD_MB = Number("{{ max_upload_mb }}") || 20;
 </script>
 
+  <script type="module" src="{{ url_for('static', filename='openeditor.js') }}"></script>
+
+  <script>
+    function updateFrameScale() {
+      const scaleX = window.innerWidth / 1440;
+      const scaleY = window.innerHeight / 900;
+      const scale = Math.min(scaleX, scaleY, 1); // never scale up, only down
+      document.documentElement.style.setProperty('--oe-scale', scale);
+    }
+    window.addEventListener('resize', updateFrameScale);
+    updateFrameScale();
+  </script>
 </body>
 </html>
 

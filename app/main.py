@@ -458,7 +458,11 @@ def _dedup_sam_issues(sam_issues: list[dict], existing_issues: list[dict]) -> li
 
 @app.get("/")
 def openeditor():
-    return render_template("writer.html")
+    return render_template(
+        "writer.html",
+        max_upload_mb=_max_upload_mb,
+        max_word_count=_max_word_count,
+    )
 
 
 @app.get("/health")
@@ -819,7 +823,7 @@ def upload():
              "llm_result":              pipeline_result.get("llm_result"),
              "sam_result":              pipeline_result.get("sam_result"),
               "spelling_corrections":    pipeline_result.get("spelling_corrections", []),
-              "grammar_corrections":     pipeline_result.get("grammar_corrections", []),
+              "grammar_corrections":     pipeline_result.get("contingent_grammar_actions", []),
               "spell_check_corrections": pipeline_result.get("spell_check_corrections", []),
               "stage_errors":            pipeline_result.get("stage_errors", []),
               "output_path":             pipeline_result.get("output_path") or output_path,
@@ -923,7 +927,10 @@ def results(session_id):
     report      = session["report"]
     ref_results = session["ref_results"]
     llm_result           = session.get("llm_result")
-    llm_error            = session.get("llm_error")
+    llm_error = next(
+    (e["error"] for e in session.get("stage_errors", []) if "Editorial review" in e.get("stage", "")),
+    None,
+)
     sam_result           = session.get("sam_result")
     spelling_corrections    = session.get("spelling_corrections", [])
     grammar_corrections     = session.get("grammar_corrections", [])
@@ -1129,6 +1136,7 @@ def analyse_cli():
 
     session_id = str(uuid.uuid4())
     _sessions[session_id] = {
+        "status": "done",
         "output_path": output_path,
         "filename": file.filename,
         "output_filename": output_filename,
@@ -1167,10 +1175,22 @@ def download(session_id):
     if not session:
         return jsonify({"error": "Session not found"}), 404
 
+    if session.get("status") != "done":
+        return jsonify({
+            "error": "This document isn't ready to download yet.",
+            "error_code": "NOT_READY",
+            "status": session.get("status"),
+        }), 409
+
+    if "output_path" not in session or not session["output_path"]:
+        return jsonify({"error": "No output file available for this session."}), 404
+
+    # Determine fallback filename if output_filename is not stored
     download_name = session.get("output_filename")
     if not download_name:
-        download_name = session["filename"].replace(".docx", "_reviewed.docx")
-
+        original_name = session.get("filename", "document.docx")
+        download_name = original_name.replace(".docx", "_reviewed.docx")
+        
     return send_file(
         session["output_path"],
         as_attachment=True,
