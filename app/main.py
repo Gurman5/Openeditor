@@ -56,12 +56,14 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Cap upload size to protect threads from being held by huge files.
 # Override via MAX_UPLOAD_MB env var if needed.
-_max_upload_mb = int(os.environ.get("MAX_UPLOAD_MB", "16"))
+_max_upload_mb = int(os.environ.get("MAX_UPLOAD_MB", "20"))
+app.config["MAX_UPLOAD_MB"] = _max_upload_mb
 app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 
 # Reject manuscripts whose whole-document word count exceeds this limit before
 # any pipeline work begins. Override via MAX_WORD_COUNT.
-_max_word_count = int(os.environ.get("MAX_WORD_COUNT", "10000"))
+_max_word_count = int(os.environ.get("MAX_WORD_COUNT", "15000"))
+app.config["MAX_WORD_COUNT"] = _max_word_count
 
 # Hard ceiling on how long the whole analysis may run. A document that hasn't
 # finished within this many seconds is abandoned and the session marked
