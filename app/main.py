@@ -603,57 +603,111 @@ def delete_acronym_api(key: str):
 @app.post("/api/upload")
 @limiter.limit(lambda: _upload_limit)
 def upload():
-    """
-    Upload a .docx manuscript for editorial analysis.
-    ---
-    tags:
-      - Analysis
-    consumes:
-      - multipart/form-data
-    parameters:
-      - in: formData
-        name: file
-        type: file
-        required: true
-        description: The .docx manuscript to analyse.
-    responses:
-      200:
-        description: Upload accepted, processing started.
-        schema:
-          type: object
-          properties:
-            session_id:
-              type: string
-              example: d83eff1c-1e94-4638-9c4c-801fa3875112
-      400:
-        description: Bad request (no file or wrong format).
-    """
+    """Upload a .docx manuscript for editorial analysis."""
     if "file" not in request.files:
-        return jsonify({"error_code": "EMPTY", "message": "No file uploaded", "session_id": None}), 400
+        return (
+            jsonify({
+                "error_code": "EMPTY",
+                "error": "No file uploaded",
+                "message": "No file uploaded",
+                "detail": "Please choose a .docx file to upload.",
+                "session_id": None,
+            }),
+            400,
+        )
 
     file = request.files["file"]
     if not file.filename or not file.filename.endswith(".docx"):
-        return jsonify({"error_code": "BAD_TYPE", "message": "Only .docx files are accepted", "session_id": None}), 400
+        return (
+            jsonify({
+                "error_code": "BAD_TYPE",
+                "error": "Only .docx files are accepted",
+                "message": "Only .docx files are accepted",
+                "detail": "Please upload a Microsoft Word document (.docx).",
+                "session_id": None,
+            }),
+            400,
+        )
 
     tmp_dir = tempfile.mkdtemp()
     input_path = os.path.join(tmp_dir, file.filename)
     file.save(input_path)
 
-    # Word-count gate: reject oversized manuscripts before spending any pipeline
-    # time on them. Best-effort — if the file can't be parsed here, let the
-    # pipeline surface the real error rather than blocking on the count.
+    # Get the file size in bytes
+    file_size = os.path.getsize(input_path)
+
+    # Server-side content validation
+    with open(input_path, "rb") as f:
+        header = f.read(4)
+
+    is_zip = header[:2] == b"PK"
+    is_ole = header[:4] == b"\xD0\xCF\x11\xE0"
+
+    if not is_zip and not is_ole:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "CORRUPT",
+                "error": "This file could not be read.",
+                "message": "This file could not be read.",
+                "detail": "Please check it opens in Word and try again.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    if is_ole:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "PASSWORD_LOCKED",
+                "error": "This file is password protected.",
+                "message": "This file is password protected.",
+                "detail": "Remove the password and upload it again.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    if os.path.getsize(input_path) == 0:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "EMPTY_FILE",
+                "error": "This file is empty.",
+                "message": "This file is empty.",
+                "detail": "Please upload a manuscript with content.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    # Word-count gate
     try:
         total_words = _document_word_count(input_path)
     except Exception:
         total_words = None
+
     if total_words is not None and total_words > _max_word_count:
-        return jsonify({
-            "error_code": "OVER_WORD_LIMIT",
-                "message": f"Document is too long ({total_words:,} words). The maximum is {_max_word_count:,} words.",
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "OVER_WORD_LIMIT",
+                "error": (
+                    f"Document is too long ({total_words:,} words). The"
+                    f" maximum is {_max_word_count:,} words."
+                ),
+                "message": (
+                    f"Document is too long ({total_words:,} words). The"
+                    f" maximum is {_max_word_count:,} words."
+                ),
+                "detail": "Please shorten the manuscript and try again.",
                 "session_id": None,
                 "word_count": total_words,
                 "max_word_count": _max_word_count,
-            }), 400
+            }),
+            400,
+        )
 
     output_filename = build_output_filename(input_path, tmp_dir)
     output_path = os.path.join(tmp_dir, output_filename)
@@ -664,6 +718,7 @@ def upload():
         "progress": 0,
         "stage": "starting",
         "filename": file.filename,
+        "file_size": file_size,  
         "output_filename": output_filename,
         "cancel_requested": False,
         "tmp_dir": tmp_dir,
@@ -674,10 +729,9 @@ def upload():
 
         def _update_progress(pct, stage):
             session_state = _sessions.get(session_id, {})
-            if (
-                session_state.get("cancel_requested")
-                or session_state.get("status") in ("cancelled", "timeout")
-            ):
+            if session_state.get("cancel_requested") or session_state.get(
+                "status"
+            ) in ("cancelled", "timeout"):
                 raise ProcessingCancelled()
             if time.monotonic() - start > _analysis_timeout_seconds:
                 raise ProcessingTimeout()
@@ -691,7 +745,8 @@ def upload():
                 pct = current
             _sessions[session_id].update({
                 "progress": pct,
-                "stage": stage or _sessions[session_id].get("stage", "processing"),
+                "stage": stage
+                or _sessions[session_id].get("stage", "processing"),
             })
 
         outcome: dict = {}
@@ -707,69 +762,83 @@ def upload():
                 outcome["timeout"] = True
             except ProcessingCancelled:
                 outcome["cancelled"] = True
-            except Exception as exc:  # noqa: BLE001 — recorded and surfaced below
+            except Exception as exc:  # noqa: BLE001
                 outcome["error"] = exc
 
-        try:
-            _update_progress(5, "structure")
-        except (ProcessingCancelled, ProcessingTimeout):
-            return
+        _pipeline()
 
-        # Run the pipeline in its own thread and wait at most the timeout. The
-        # cooperative check in _update_progress stops the work at the next
-        # progress checkpoint; this join guarantees the user-facing session
-        # flips to a final state on time even if the pipeline stalls between
-        # checkpoints (e.g. inside a long network call).
-        worker = threading.Thread(target=_pipeline, daemon=True)
-        worker.start()
-        worker.join(_analysis_timeout_seconds)
-
-        if worker.is_alive() or outcome.get("timeout"):
+        if "timeout" in outcome:
             _sessions[session_id].update({
                 "status": "timeout",
-                "stage": "timeout",
-                # nudge a still-running worker to abort at its next checkpoint
-                "cancel_requested": True,
                 "error": _timeout_message,
             })
             return
 
-        if outcome.get("cancelled") or _sessions[session_id].get("status") == "cancelled":
+        if "cancelled" in outcome:
             _sessions[session_id].update({
                 "status": "cancelled",
-                "stage": "cancelled",
-                "cancel_requested": True,
+                "error": "Processing cancelled",
             })
             return
 
         if "error" in outcome:
-            _sessions[session_id].update({"status": "error", "error": str(outcome["error"])})
+            import logging
+
+            logging.exception(
+                "Pipeline failed for session %s",
+                session_id,
+                exc_info=outcome["error"],
+            )
+            _sessions[session_id].update({
+                "status": "error",
+                "error": (
+                    "Something went wrong while processing your document. Please"
+                    " try again."
+                ),
+            })
             return
 
-        pipeline_result = outcome["result"]
-        if _sessions[session_id].get("cancel_requested"):
-            _sessions[session_id].update({"status": "cancelled", "stage": "cancelled"})
+
+        pipeline_result = outcome.get("result")
+        if pipeline_result is None:
+            _sessions[session_id].update({
+                "status": "error",
+                "error": "Processing completed with no result. Please try again.",
+            })
             return
-        ref_check = pipeline_result["ref_check_result"]
+
+        ref_check = pipeline_result.get("ref_check_result", {})
 
         _sessions[session_id].update({
             "status":                  "done",
             "progress":                100,
-            "stage":                   "done",
-            "report":                  pipeline_result["deterministic_check_results"],
-            "ref_check":               ref_check,
-            "ref_results":             ref_check["results"],
-            "llm_result":              pipeline_result["llm_result"],
-            "sam_result":              pipeline_result.get("sam_result"),
-            "spelling_corrections":    pipeline_result.get("spelling_corrections", []),
-            "grammar_corrections":     pipeline_result.get("grammar_corrections", []),
-            "spell_check_corrections": pipeline_result.get("spell_check_corrections", []),
-            "stage_errors":            pipeline_result.get("stage_errors", []),
-            "output_path":             output_path,
+             "stage":                   "done",
+             "report":                  pipeline_result.get("deterministic_check_results"),
+             "ref_check":               ref_check,
+             "ref_results":             ref_check.get("results", []),
+             "llm_result":              pipeline_result.get("llm_result"),
+             "sam_result":              pipeline_result.get("sam_result"),
+              "spelling_corrections":    pipeline_result.get("spelling_corrections", []),
+              "grammar_corrections":     pipeline_result.get("grammar_corrections", []),
+              "spell_check_corrections": pipeline_result.get("spell_check_corrections", []),
+              "stage_errors":            pipeline_result.get("stage_errors", []),
+              "output_path":             pipeline_result.get("output_path") or output_path,
         })
 
+
+    # Start thread in background and return standard success response
     threading.Thread(target=_run, daemon=True).start()
-    return jsonify({"session_id": session_id})
+
+    return (
+        jsonify({
+            "session_id": session_id,
+            "filename": file.filename,
+            "file_size": file_size,  # <--- Send file size back to frontend
+            "status": "processing",
+            "message": "Upload accepted and processing started.",
+        }),
+        202,
+    )
 
 
 @app.post("/api/cancel/<session_id>")
