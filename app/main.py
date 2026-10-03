@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import uuid
+import zipfile
 from datetime import timedelta
 from urllib.parse import urljoin, urlparse
 
@@ -671,19 +672,22 @@ def upload():
     is_zip = header[:2] == b"PK"
     is_ole = header[:4] == b"\xD0\xCF\x11\xE0"
 
+
+    # 1. Reject renamed non-docx files (Z-04 requirement)
     if not is_zip and not is_ole:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return (
             jsonify({
-                "error_code": "CORRUPT",
+                "error_code": "FAKE_DOCX",  # <-- Make sure this is FAKE_DOCX
                 "error": "This file could not be read.",
                 "message": "This file could not be read.",
-                "detail": "Please check it opens in Word and try again.",
+                "detail": "Please check that this is a valid Word document (.docx) and try again.",
                 "session_id": None,
             }),
             400,
         )
 
+    # 2. Reject legacy .doc / password-protected OLE files
     if is_ole:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return (
@@ -697,6 +701,36 @@ def upload():
             400,
         )
 
+    # 3. Z-04: Reject macro-bearing or embedded-object docx files (YOUR BLOCK HERE)
+    try:
+        with zipfile.ZipFile(input_path) as zf:
+            names = zf.namelist()
+            if "word/vbaProject.bin" in names or any(n.startswith("word/embeddings/") for n in names):
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return (
+                    jsonify({
+                        "error_code": "UNSUPPORTED_CONTENT",
+                        "error": "This file could not be processed.",
+                        "message": "This file could not be processed.",
+                        "detail": "The document contains content (macros or embedded objects) that cannot be processed.",
+                        "session_id": None,
+                    }),
+                    400,
+                )
+    except zipfile.BadZipFile:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "CORRUPT",
+                "error": "This file could not be read.",
+                "message": "This file could not be read.",
+                "detail": "Please check it opens in Word and try again.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    # 4. Check for empty files
     if os.path.getsize(input_path) == 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return (
