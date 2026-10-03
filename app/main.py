@@ -508,10 +508,12 @@ def jutlp_articles_api():
         description: Article cards for the processing screen.
     """
     try:
-        limit = int(request.args.get("limit", "30"))
+        limit = int(request.args.get("limit", "10"))
     except (TypeError, ValueError):
         limit = 10
-    return jsonify({"articles": get_jutlp_articles(limit=limit)})
+
+    articles, is_degraded = get_jutlp_articles(limit=limit)
+    return jsonify({"articles": articles, "degraded": is_degraded})
 
 
 # ---------------------------------------------------------------------------

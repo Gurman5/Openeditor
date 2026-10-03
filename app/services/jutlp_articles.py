@@ -41,15 +41,41 @@ FALLBACK_ARTICLE = {
     "url": "https://open-publishing.org/journals/index.php/jutlp/article/view/810/769",
 }
 
+# ── Abstract length cap ──────────────────────────────────────────────────────
+# D-10: abstracts from the source page run 900-1900 chars and were rendered in
+# full. _trim_text already existed but was never called anywhere.
+_ABSTRACT_MAX_CHARS = 400
+
+# ── Cache ─────────────────────────────────────────────────────────────────────
 _CACHE_LOCK = threading.Lock()
 _CACHE_UNTIL = 0.0
 _CACHE_ARTICLES: list[dict] = []
 _CACHE_TTL_SECONDS = 60 * 60 * 6
 
+# ── Fetch-in-progress lock (D-10: prevents a cache-miss stampede) ───────────
+# Holding this across the whole fetch, not just the cache read/write, means
+# concurrent cold requests queue behind the first fetch instead of each
+# independently crawling the source site.
+_FETCH_LOCK = threading.Lock()
 
-def get_jutlp_articles(limit: int = 10) -> list[dict]:
-    """Return random published JUTLP articles, falling back safely on failure."""
-    global _CACHE_ARTICLES, _CACHE_UNTIL
+# ── Circuit breaker (D-10: stop re-crawling a dead source immediately) ──────
+_CIRCUIT_LOCK = threading.Lock()
+_CIRCUIT_OPEN_UNTIL = 0.0
+_CIRCUIT_FAILURE_THRESHOLD = 3
+_CIRCUIT_COOLDOWN_SECONDS = 60 * 15
+_consecutive_failures = 0
+
+
+def get_jutlp_articles(limit: int = 10) -> tuple[list[dict], bool]:
+    """Return (articles, is_degraded).
+
+    is_degraded is True whenever the live feed could not be reached and we
+    are serving the single hardcoded fallback article, or stale cached data,
+    instead of a fresh crawl. Callers (the API route) should pass this
+    through so the frontend can show a visible degraded state rather than
+    silently rendering the fallback as if it were normal content.
+    """
+    global _CACHE_ARTICLES, _CACHE_UNTIL, _consecutive_failures, _CIRCUIT_OPEN_UNTIL
 
     limit = max(1, min(int(limit or 10), 12))
 
@@ -58,22 +84,49 @@ def get_jutlp_articles(limit: int = 10) -> list[dict]:
         cache_fresh = cached and time.time() < _CACHE_UNTIL
 
     if cache_fresh:
-        return _sample_articles(cached, limit)
+        return _sample_articles(cached, limit), False
 
-    try:
-        fresh = _fetch_jutlp_articles(max_articles=18)
-    except Exception:
-        fresh = []
+    with _CIRCUIT_LOCK:
+        circuit_open = time.time() < _CIRCUIT_OPEN_UNTIL
 
-    if fresh:
+    if circuit_open:
+        if cached:
+            return _sample_articles(cached, limit), True
+        return [FALLBACK_ARTICLE], True
+
+    # Only one thread fetches at a time; others wait rather than each firing
+    # an independent crawl.
+    with _FETCH_LOCK:
+        # Re-check: another thread may have already refreshed the cache
+        # while we were waiting for the fetch lock.
         with _CACHE_LOCK:
-            _CACHE_ARTICLES = fresh
-            _CACHE_UNTIL = time.time() + _CACHE_TTL_SECONDS
-        return _sample_articles(fresh, limit)
+            cached = list(_CACHE_ARTICLES)
+            cache_fresh = cached and time.time() < _CACHE_UNTIL
+        if cache_fresh:
+            return _sample_articles(cached, limit), False
 
-    if cached:
-        return _sample_articles(cached, limit)
-    return [FALLBACK_ARTICLE]
+        try:
+            fresh = _fetch_jutlp_articles(max_articles=18)
+        except Exception:
+            fresh = []
+
+        if fresh:
+            with _CIRCUIT_LOCK:
+                _consecutive_failures = 0
+            with _CACHE_LOCK:
+                _CACHE_ARTICLES = fresh
+                _CACHE_UNTIL = time.time() + _CACHE_TTL_SECONDS
+            return _sample_articles(fresh, limit), False
+
+        # Fetch failed or returned nothing usable.
+        with _CIRCUIT_LOCK:
+            _consecutive_failures += 1
+            if _consecutive_failures >= _CIRCUIT_FAILURE_THRESHOLD:
+                _CIRCUIT_OPEN_UNTIL = time.time() + _CIRCUIT_COOLDOWN_SECONDS
+
+        if cached:
+            return _sample_articles(cached, limit), True
+        return [FALLBACK_ARTICLE], True
 
 
 def _sample_articles(articles: list[dict], limit: int) -> list[dict]:
@@ -168,7 +221,7 @@ def _normalise_article(article: dict | None) -> dict | None:
     if not article:
         return None
     title = _clean_text(article.get("title"))
-    abstract = _clean_text(article.get("abstract"))
+    abstract = _trim_text(_clean_text(article.get("abstract")), _ABSTRACT_MAX_CHARS)
     url = _clean_text(article.get("url"))
     if not title or not abstract or not _is_valid_article_url(url):
         return None
