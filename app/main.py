@@ -455,6 +455,63 @@ def _dedup_sam_issues(sam_issues: list[dict], existing_issues: list[dict]) -> li
             deduped.append(issue)
     return deduped
 
+def _build_changes_made(pipeline_result: dict) -> dict:
+    """Aggregate every tracked-change correction into the three 'changes made' groups.
+    only things that actually changedthe document count here. flag/comment-only
+    passes (short paragraphs, reference order) are excluded, those
+    belong in 'needs manual review', not in a 'changes made' count.
+    """
+
+    # ── References and citations ──────────────────────────────────────────
+    # run_font_actions spans reference text AND body; counted here because its
+    # primary target is reconstructed reference/DOI runs.
+    references = (
+        len(pipeline_result.get("ref_format_corrections") or [])
+        + len(pipeline_result.get("reference_indent_actions") or [])
+        + len(pipeline_result.get("run_font_actions") or [])
+    )
+
+    # ── Structure and front page ──────────────────────────────────────────
+    structure = (
+        _count_sam_changes(pipeline_result.get("sam_result"))
+        + len(pipeline_result.get("heading_corrections") or [])   
+        + len(pipeline_result.get("caption_apa7_actions") or [])
+        + len(pipeline_result.get("table_n_actions") or [])
+        + len(pipeline_result.get("table_section_boundary_actions") or [])
+        + len(pipeline_result.get("table_keep_together_actions") or [])
+        + len(pipeline_result.get("table_page_break_actions") or [])
+        + len(pipeline_result.get("appendix_actions") or [])
+    )
+
+    # ── Spelling and grammar ──────────────────────────────────────────────
+    language = (
+        len(pipeline_result.get("spelling_corrections") or [])
+        + len(pipeline_result.get("spell_check_corrections") or [])
+        + len(pipeline_result.get("acronym_actions") or [])
+        + len(pipeline_result.get("abbreviation_actions") or [])
+        + len(pipeline_result.get("number_word_corrections") or [])
+        + len(pipeline_result.get("decimal_actions") or [])
+        + len(pipeline_result.get("contingent_grammar_actions") or [])
+        + len(pipeline_result.get("coherence_actions") or [])
+    )
+
+    groups = [
+        {"key": "references", "label": "References and citations", "count": references},
+        {"key": "structure",  "label": "Structure and front page", "count": structure},
+        {"key": "language",   "label": "Spelling and grammar",     "count": language},
+    ]
+
+    return {
+        "total": sum(g["count"] for g in groups),
+        "groups": groups,
+    }
+
+
+def _count_sam_changes(sam_result: dict | None) -> int:
+    """Count Sam's tracked changes via the same plan→issue conversion the
+    results endpoint already uses. NOTE: _sam_plan_to_issues only converts a
+    subset of Sam's plan keys, so this slightly undercounts Sam's ~40 stages."""
+    return len(_sam_plan_to_issues(sam_result))
 
 @app.get("/")
 def openeditor():
@@ -767,6 +824,7 @@ def upload():
             "stage_errors":            pipeline_result.get("stage_errors", []),
             "output_path":             output_path,
         })
+        _sessions[session_id]["changes_made"] = _build_changes_made(pipeline_result)
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"session_id": session_id})
@@ -1008,6 +1066,7 @@ def results(session_id):
         "llm_available":        llm_result is not None,
         "llm_error":            llm_error,
         "stage_errors":         session.get("stage_errors", []),
+        "changes_made":         session.get("changes_made", {"total": 0, "groups": []}),
     })
 
 
