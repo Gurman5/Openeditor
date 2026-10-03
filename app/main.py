@@ -1,3 +1,4 @@
+from cmath import log
 import hmac
 import os
 import re
@@ -20,6 +21,7 @@ from flask import (
     send_file,
     session,
     url_for,
+    after_this_request
 )
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -251,6 +253,26 @@ swagger = Swagger(
 
 _sessions: dict = {}
 
+
+_file_ttl_seconds = int(os.environ.get("FILE_TTL_SECONDS", str(24 * 60 * 60)))  # 24h default
+
+def _sweep_expired_sessions():
+    while True:
+        time.sleep(300)  # Check every 5 minutes
+        now = time.time()
+        for sid, sess in list(_sessions.items()):
+            created = sess.get("created_at", now)
+            if now - created > _file_ttl_seconds:
+                tmp_dir = sess.get("tmp_dir")
+                if tmp_dir and os.path.isdir(tmp_dir):
+                    try:
+                        shutil.rmtree(tmp_dir, ignore_errors=False)
+                    except OSError as exc:
+                        log.warning("TTL sweep failed for %s: %s", sid, exc)
+                sess["status"] = "expired"
+                sess.pop("output_path", None)
+
+threading.Thread(target=_sweep_expired_sessions, daemon=True).start()
 
 class ProcessingCancelled(Exception):
     pass
@@ -728,6 +750,7 @@ def upload():
         "output_filename": output_filename,
         "cancel_requested": False,
         "tmp_dir": tmp_dir,
+        "created_at": time.time(),
     }
 
     def _run():
@@ -778,6 +801,11 @@ def upload():
                 "status": "timeout",
                 "error": _timeout_message,
             })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on timeout: %s", tmp_dir, exc)
             return
 
         if "cancelled" in outcome:
@@ -785,6 +813,11 @@ def upload():
                 "status": "cancelled",
                 "error": "Processing cancelled",
             })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on cancel: %s", tmp_dir, exc)
             return
 
         if "error" in outcome:
@@ -802,6 +835,11 @@ def upload():
                     " try again."
                 ),
             })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on error: %s", tmp_dir, exc)
             return
 
 
@@ -811,6 +849,11 @@ def upload():
                 "status": "error",
                 "error": "Processing completed with no result. Please try again.",
             })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on empty result: %s", tmp_dir, exc)
             return
 
         ref_check = pipeline_result.get("ref_check_result", {})
@@ -1175,7 +1218,13 @@ def download(session_id):
     """
     session = _sessions.get(session_id)
     if not session:
-        return jsonify({"error": "Session not found"}), 404
+        return jsonify({"error": "Session not found", "error_code": "NOT_FOUND"}), 404
+
+    if session.get("downloaded"):
+        return jsonify({
+            "error": "This file is no longer available.",
+            "error_code": "ALREADY_DOWNLOADED",
+        }), 410
 
     if session.get("status") != "done":
         return jsonify({
@@ -1184,8 +1233,28 @@ def download(session_id):
             "status": session.get("status"),
         }), 409
 
-    if "output_path" not in session or not session["output_path"]:
-        return jsonify({"error": "No output file available for this session."}), 404
+    output_path = session.get("output_path")
+    tmp_dir = session.get("tmp_dir")
+
+    if not output_path or not os.path.isfile(output_path):
+        return jsonify({
+            "error": "No output file available for this session.",
+            "error_code": "FILE_MISSING",
+        }), 404
+
+
+    session["downloaded"] = True
+
+    @after_this_request
+    def cleanup_file(response):
+        if tmp_dir and os.path.isdir(tmp_dir):
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=False)
+            except OSError as exc:
+                log.warning("Could not clean up tmp_dir %s post-download: %s", tmp_dir, exc)
+        session["status"] = "expired"
+        session.pop("output_path", None)
+        return response
 
     # Determine fallback filename if output_filename is not stored
     download_name = session.get("output_filename")
