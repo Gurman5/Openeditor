@@ -637,7 +637,7 @@ def check_body_paragraph_styles(docx_path: str) -> list[dict]:
     unique_styles = ", ".join(sorted({p.style for p in wrong}))
     return [_result("STY003", "warn",
         f"{len(wrong)} body paragraph(s) use non-Normal styles ({unique_styles}) — "
-        "body text should use the Normal style (11pt Arial, left-justified, 1.15 line-spacing)")]
+        "body text should use the Normal style (11pt Arial, justified, 1.15 line-spacing)")]
 
 
 def check_reference_paragraph_styles(docx_path: str) -> list[dict]:
