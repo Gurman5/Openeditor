@@ -40,6 +40,7 @@ document.addEventListener('alpine:init', () => {
     ],
     hasDownloaded: false,
     resultsPayload: null,
+    showCleanCopyNote: false,
 
     get fileSizeLabel() {
       if (!this.selectedFile) return '';
@@ -228,6 +229,10 @@ document.addEventListener('alpine:init', () => {
         window.location.href = downloadUrl(this.sessionId);
       }
       this.hasDownloaded = true;
+    },
+    
+    requestCleanCopy() {
+      this.showCleanCopyNote = true;
     },
 
     get currentArticle() {

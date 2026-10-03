@@ -11,7 +11,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='updatedstyle.css') }}">
 </head>
 <body>
@@ -173,15 +173,30 @@
         <h2 class="oe-headline">Your document is ready</h2>
         <div class="oe-file-meta" x-text="downloadFileLabel"></div>
 
-        <p class="oe-lede">Your processed manuscript is ready to download. Your processed file is temporary and will not be saved as document history.</p>
+        <div class="oe-about-box">
+          <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+          <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
+        </div>
 
         <div class="oe-submit-row left">
-          <button class="oe-btn-primary" @click="downloadManuscript()">Download processed document</button>
+          <button class="oe-btn-primary" @click="downloadManuscript()">Download reviewed document</button>
         </div>
-        <p class="oe-muted">Want to process another document?</p>
+        <p class="oe-helper">Keeps every change as a tracked change with a margin comment. Review them in Word.</p>
+
+        <div class="oe-submit-row left">
+          <button type="button" class="oe-btn-secondary" @click="requestCleanCopy()">
+            Download with all changes accepted
+            <span class="oe-tag-soon">Coming soon</span>
+          </button>
+        </div>
+        <p class="oe-clean-copy-note" role="status" x-show="showCleanCopyNote" x-cloak>
+          This option isn't available yet. For now, download the reviewed document
+          and use Review › Accept All Changes in Word.
+        </p>
+        <p class="oe-helper">Applies every OpenEditor change for you. You won't be able to accept or reject them one by one.</p>
+        <button class="oe-link" @click="requestProcessAnother()">Process another document</button>
 
         <!--Process another document guard-->
-        <button class="oe-btn-ghost" @click="requestProcessAnother()">Process another document</button>
         <div class="oe-modal-overlay" x-show="showLeaveConfirm" x-cloak>
           <div class="oe-modal">
             <div class="oe-eyebrow">DOWNLOAD WARNING</div>
