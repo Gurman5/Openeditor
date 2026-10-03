@@ -53,6 +53,15 @@ log = logging.getLogger(__name__)
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WQ = f"{{{W}}}"
 
+# ── Reporting ownership (D-01 step 4) ─────────────────────────────────────
+# Rules Sam's build_edited_document actually FIXES (tracked change or silent
+# edit) must not also be commented, or the author sees the issue twice.
+# Everything else is comment-only — never drop it, or the issue silently
+# disappears (a correctness bug, e.g. FP008/FP009 previously dropped by "FP").
+_SAM_FIXED_RULE_IDS = frozenset({
+    "FP001", "FP002", "FP003", "FP004", "FP005", "FP006", "FP007", "FP011",
+    "STY003", "STY004", "SPE002", "TAB001", "TAB002",
+})
 
 def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower())
@@ -724,14 +733,11 @@ def doc_analysis_pipeline(
         _progress(68, "building")
 
         # ── Phase 3: Sequential document assembly ────────────────────────────────
-        # Sam handles all front-page items (FP*) via tracked changes — skip them here
-        # so the same issue doesn't appear as both a comment and a tracked change.
-        _SAM_COVERED = {"FP"}
         filtered_report = {
             **deterministic_check_results,
             "results": [
                 r for r in deterministic_check_results["results"]
-                if not any(r["rule_id"].startswith(p) for p in _SAM_COVERED)
+                if r["rule_id"] not in _SAM_FIXED_RULE_IDS
             ],
         }
 
