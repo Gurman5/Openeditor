@@ -63,14 +63,14 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .oe-frame {
   position: relative;
   width: 1440px;
   min-height: 900px;
-  margin: 0;
+  margin: auto;
   background: var(--white);
   padding: 80px 120px 60px;
   box-sizing: border-box;
@@ -182,7 +182,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
 .oe-signature {
   position: absolute;
   left: 1100px;
-  top: 726px;
+  bottom: 120px;
   width: 220px;
   height: 54px;
   display: flex;
@@ -514,3 +514,63 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* ─── Results step: stacked review and changes lists ─── */
+.oe-section {
+  max-width: 800px;
+  margin-bottom: 40px;
+}
+.oe-section-label {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-bottom: 8px;
+}
+.oe-result {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.oe-result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+.oe-result-title {
+  font-family: var(--serif);
+  font-size: 16px;
+  color: var(--ink);
+}
+.oe-result-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: var(--ink3);
+  white-space: nowrap;
+}
+.oe-result-desc {
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink3);
+  margin-top: 4px;
+}
+.oe-result-link {
+  display: inline-block;
+  margin-top: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.oe-result-toggle { cursor: pointer; }
+.oe-chevron { font-size: 12px; color: var(--ink3); }
+.oe-result-body { margin-top: 8px; }
+.oe-result-link:hover { text-decoration: underline; }
