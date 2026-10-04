@@ -515,7 +515,6 @@ def jutlp_articles_api():
     articles, is_degraded = get_jutlp_articles(limit=limit)
     return jsonify({"articles": articles, "degraded": is_degraded})
 
-
 # ---------------------------------------------------------------------------
 # Acronym allow-list admin
 #
