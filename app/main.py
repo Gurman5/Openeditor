@@ -9,9 +9,9 @@ import threading
 import time
 import uuid
 import zipfile
+from app.services.session_manager import prune_expired_sessions
 from datetime import timedelta
 from urllib.parse import urljoin, urlparse
-
 from flasgger import Swagger
 from flask import (
     Flask,
@@ -52,6 +52,26 @@ from app.services.output_generation_samfix import (
 )
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+
+def start_session_sweeper():
+    def _sweep_loop():
+        while True:
+            time.sleep(300)  # 5 minutes
+            try:
+                pruned_count = prune_expired_sessions()
+                if pruned_count > 0:
+                    print(
+                        f"[Session Sweeper] Successfully pruned {pruned_count} expired session(s)."
+                    )
+            except Exception as e:
+                print(f"[Session Sweeper Error] Failed during pruning pass: {e}")
+
+    thread = threading.Thread(target=_sweep_loop, daemon=True)
+    thread.start()
+
+
+# Start background sweeper as soon as app is created
+start_session_sweeper()
 
 # Trust X-Forwarded-* headers from Railway's load balancer so request.remote_addr
 # reflects the real client IP (needed for accurate per-IP rate limiting).
