@@ -24,27 +24,65 @@ document.addEventListener('alpine:init', () => {
     jutlpRotateTimer: null,
     showCancelConfirm: false,
     showLeaveConfirm: false,
-
-    // ─── RESULTS state ───
-    totalCorrections: 34,
-    freeItems: [
-      { label: 'Heading hierarchy', status: '12 FIXED' },
-      { label: 'Line spacing and margins', status: '9 FIXED' },
-      { label: 'In-text citation format', status: '8 FIXED' },
-      { label: 'Title page and running head', status: '5 FIXED' }
-    ],
-    reviewItems: [
-      { label: '6 references could not be verified' },
-      { label: '2 DOIs did not resolve' },
-      { label: '1 table caption format unclear' }
-    ],
     hasDownloaded: false,
     resultsPayload: null,
+    showCleanCopyNote: false,
+    openGroups: [],
 
     get fileSizeLabel() {
       if (!this.selectedFile) return '';
       const mb = this.selectedFile.size / (1024 * 1024);
       return mb.toFixed(1) + ' MB';
+    },
+
+    get manualReviewItems() {
+      if (!this.resultsPayload) return [];
+      const issueFails = (this.resultsPayload.issues || []).filter(i => i.status === 'fail');
+      const refFails = (this.resultsPayload.ref_verifications || []).filter(r => r.status === 'fail');
+      return [...issueFails, ...refFails];
+    },
+
+    get manualReviewGroups() {
+      const map = new Map();
+      for (const item of this.manualReviewItems) {
+        const label = this._manualReviewCategory(item.rule_id);
+        if (!map.has(label)) map.set(label, []);
+        map.get(label).push(item);
+      }
+      return [...map.entries()].map(([label, items]) => ({ label, count: items.length, items }));
+    },
+
+    _manualReviewCategory(ruleId) {
+      if (/^(CREF|HREF|DOIT|CONS|REF)/.test(ruleId)) return 'References and citations';
+      if (/^(SEC|MET|DIS|CON|SPE|FIG|TAB)/.test(ruleId)) return 'Structure';
+      if (/^(FP|AFF)/.test(ruleId)) return 'Front page';
+      if (/^STY/.test(ruleId)) return 'Style';
+      if (/^LLM/.test(ruleId)) return 'Editorial';
+      if (/^SAM/.test(ruleId)) return 'Front page';
+      return 'Other';
+    },
+
+    toggleGroup(label) {
+      this.openGroups[label] = !this.openGroups[label];
+    },
+    
+    get manualReviewTotal() {
+      return this.manualReviewItems.length;
+    },
+
+    get changesMadeGroups() {
+      if (!this.resultsPayload) return [];
+      return (this.resultsPayload.changes_made || {}).groups || [];
+    },
+
+    get changesMadeTotal() {
+      if (!this.resultsPayload) return 0;
+      return (this.resultsPayload.changes_made || {}).total || 0;
+    },
+
+    get downloadFileLabel() {
+      if (!this.resultsPayload) return '';
+      return this.resultsPayload.output_filename || this.resultsPayload.filename || '';
     },
 
     init() {
@@ -231,6 +269,10 @@ document.addEventListener('alpine:init', () => {
         window.location.href = downloadUrl(this.sessionId);
       }
       this.hasDownloaded = true;
+    },
+    
+    requestCleanCopy() {
+      this.showCleanCopyNote = true;
     },
 
     get currentArticle() {

@@ -1,0 +1,1 @@
+Run the requested Python checks for this OpenEditor project. If arguments are provided, pass them to pytest; otherwise run the full test suite with `pytest tests/`. Also run `ruff check .` when checking the complete project. Report failures clearly and do not modify files.

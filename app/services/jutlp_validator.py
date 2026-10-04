@@ -166,7 +166,7 @@ def _extra_subheadings(found_subs: list[str], required: list[str]) -> list[str]:
 
 
 def _extra_subheading_result(rule_id: str, section: str, extras: list[str],
-                             required: list[str]) -> dict:
+                        required: list[str]) -> dict:
     expected = ", ".join(required)
     listed = ", ".join(f"'{e}'" for e in extras)
     return _result(
@@ -637,7 +637,7 @@ def check_body_paragraph_styles(docx_path: str) -> list[dict]:
     unique_styles = ", ".join(sorted({p.style for p in wrong}))
     return [_result("STY003", "warn",
         f"{len(wrong)} body paragraph(s) use non-Normal styles ({unique_styles}) — "
-        "body text should use the Normal style (11pt Arial, left-justified, 1.15 line-spacing)")]
+        "body text should use the Normal style (11pt Arial, justified, 1.15 line-spacing)")]
 
 
 def check_reference_paragraph_styles(docx_path: str) -> list[dict]:

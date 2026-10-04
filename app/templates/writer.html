@@ -11,7 +11,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='updatedstyle.css') }}">
 </head>
 <body>
@@ -137,33 +137,53 @@
       <!-- ======================== 3.RESULTS ======================== -->
       <div x-show="currentPhase === 'results'" x-cloak>
         <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
-        <h2 class="oe-headline">Your manuscript has been processed</h2>
-        <p class="oe-lede">Some formatting issues were found and changes have been made.</p>
+        <h2 class="oe-headline">Your manuscript has been reviewed</h2>
+        <p class="oe-lede">
+          <span x-text="changesMadeTotal"></span> corrections were applied to your document.
+          <span x-text="manualReviewTotal"></span> items need a decision from you before you submit.
+        </p>
 
-        <div class="oe-results-columns">
-          <div class="oe-results-col">
-            <div class="oe-results-col-header">CHANGES MADE AUTOMATICALLY</div>
-            <template x-for="item in freeItems" :key="item.label">
-              <div class="oe-results-row">
-                <span class="oe-results-marker">■</span>
-                <span class="oe-results-label" x-text="item.label"></span>
-                <span class="oe-results-status" x-text="item.status"></span>
+        <div class="oe-section">
+          <div class="oe-section-label">NEEDS MANUAL REVIEW &middot; <span x-text="manualReviewTotal"></span></div>
+          <template x-for="group in manualReviewGroups" :key="group.label">
+            <div class="oe-result">
+              <div class="oe-result-head oe-result-toggle" @click="toggleGroup(group.label)">
+                <span class="oe-result-title" x-text="group.label"></span>
+                <span class="oe-result-tag">
+                  <span x-text="group.count"></span>
+                  <span class="oe-chevron" x-text="openGroups[group.label] ? '▾' : '▸'"></span>
+                </span>
               </div>
-            </template>
-            <p class="oe-results-note">Review the changes in your downloaded document.</p>
-            <button class="oe-btn-ghost" @click="goToDownload()">Continue to download</button>
-          </div>
+              <div class="oe-result-body" x-show="openGroups[group.label]">
+                <template x-for="item in group.items" :key="item.rule_id">
+                  <p class="oe-result-desc" x-text="item.message"></p>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
 
-          <div class="oe-results-col muted">
-            <div class="oe-results-col-header">THINGS TO REVIEW</div>
-              <template x-for="item in reviewItems" :key="item.label">
-                <div class="oe-results-row">
-                  <span class="oe-results-marker">□</span>
-                  <span class="oe-results-label" x-text="item.label"></span>
-                  <span class="oe-results-status">REVIEW</span>
-                </div>
-              </template>
-          </div>
+        <div class="oe-section">
+          <div class="oe-section-label">CHANGES MADE &middot; <span x-text="changesMadeTotal"></span></div>
+          <template x-for="group in changesMadeGroups" :key="group.key">
+            <div class="oe-result">
+              <div class="oe-result-head">
+                <span class="oe-result-title" x-text="group.label"></span>
+                <span class="oe-result-tag" x-text="group.count + ' CHANGES'"></span>
+              </div>
+              <p class="oe-result-desc" x-text="group.description" x-show="group.description"></p>
+              <button type="button" class="oe-result-link" x-show="group.linkLabel" x-text="group.linkLabel + ' ›'"></button>
+            </div>
+          </template>
+        </div>
+
+        <div class="oe-about-box">
+          <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+          <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
+        </div>
+
+        <div class="oe-submit-row left">
+          <button class="oe-btn-primary" @click="goToDownload()">Continue to download</button>
         </div>
       </div>
 
@@ -173,15 +193,30 @@
         <h2 class="oe-headline">Your document is ready</h2>
         <div class="oe-file-meta" x-text="downloadFileLabel"></div>
 
-        <p class="oe-lede">Your processed manuscript is ready to download. Your processed file is temporary and will not be saved as document history.</p>
+        <div class="oe-about-box">
+          <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+          <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
+        </div>
 
         <div class="oe-submit-row left">
-          <button class="oe-btn-primary" @click="downloadManuscript()">Download processed document</button>
+          <button class="oe-btn-primary" @click="downloadManuscript()">Download reviewed document</button>
         </div>
-        <p class="oe-muted">Want to process another document?</p>
+        <p class="oe-helper">Keeps every change as a tracked change with a margin comment. Review them in Word.</p>
+
+        <div class="oe-submit-row left">
+          <button type="button" class="oe-btn-secondary" @click="requestCleanCopy()">
+            Download with all changes accepted
+            <span class="oe-tag-soon">Coming soon</span>
+          </button>
+        </div>
+        <p class="oe-clean-copy-note" role="status" x-show="showCleanCopyNote" x-cloak>
+          This option isn't available yet. For now, download the reviewed document
+          and use Review › Accept All Changes in Word.
+        </p>
+        <p class="oe-helper">Applies every OpenEditor change for you. You won't be able to accept or reject them one by one.</p>
+        <button class="oe-link" @click="requestProcessAnother()">Process another document</button>
 
         <!--Process another document guard-->
-        <button class="oe-btn-ghost" @click="requestProcessAnother()">Process another document</button>
         <div class="oe-modal-overlay" x-show="showLeaveConfirm" x-cloak>
           <div class="oe-modal">
             <div class="oe-eyebrow">DOWNLOAD WARNING</div>

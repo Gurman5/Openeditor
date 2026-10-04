@@ -9216,6 +9216,7 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
     body_fixes = 0
     heading_fixes = 0
     reference_fixes = 0
+    next_id = 5000
     changed = False
     quote_style_needed = False
     next_table_title = False
@@ -9234,8 +9235,9 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
                 raw_el,
                 REFERENCE_ENTRY_REQUIRED_STYLE_ID,
                 sname,
-                change_id=5000 + reference_fixes,
+                change_id = next_id,
             )
+            next_id += 1
             reference_fixes += 1
             changed = True
             continue
@@ -9285,8 +9287,9 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
                     raw_el,
                     required_style,
                     sname,
-                    change_id=6100 + heading_fixes,
+                    change_id = next_id,
                 )
+                next_id += 1
                 heading_fixes += 1
                 changed = True
             continue
@@ -9296,7 +9299,8 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
                 continue
             if body_fixes >= _MAX_BODY_STYLE_FIXES:
                 continue
-            _apply_tracked_style_change(raw_el, "Normal", sname, change_id=6000 + body_fixes)
+            _apply_tracked_style_change(raw_el, "Normal", sname, change_id=next_id)
+            next_id += 1
             body_fixes += 1
             changed = True
 

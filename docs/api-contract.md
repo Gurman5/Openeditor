@@ -339,6 +339,28 @@ manuscript retention/transmission).
 **Status:** requires backend changes to add `error_code`/`filename` to error responses that
 don't currently have them — flagging as a small follow-up task, not done in this doc pass.
 
+## D-03 Reference validation: where the LLM is and is not involved
+Reference verification (`app/services/reference_checker.py`) is deterministic and
+CrossRef-driven. The language model is a *second opinion only*, invoked when CrossRef
+returns no confident match. It is deliberately constrained:
+
+- It may change a verdict **fail → warn** (never `fail → pass`). A reference CrossRef
+  could not confirm is never reported as verified.
+- It may **never** add a reference, author, year, or DOI. Its output is not stored as
+  reference data and is never written back into the document.
+- Its prose (`reason` / `issues`) is **never shown to the author**. Author-facing Word
+  comments use fixed plain-language wording ("we could not confirm this reference
+  automatically"). The model's text is logged internally with the reference index for
+  auditing only.
+- A `warn` that results from a model opinion is just that — a model opinion, not a
+  verification. It is traceable to a logged verdict, never to a CrossRef response.
+
+Separately, `app/services/ai/prompt_builder.py` instructs the *editorial* LLM not to
+touch reference data — that guard is prompt-level only, not a hard constraint.
+
+Negative caching: a network/timeout failure during CrossRef lookup is **not** cached, so
+a transient outage cannot become a permanent "not found" verdict. A genuine 404 (or an
+empty search result) *is* cached.
 
 ---
 

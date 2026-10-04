@@ -30,6 +30,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.pipelines.feedback_gen_pipeline import doc_analysis_pipeline
+from app.domain.reporting_ownership import is_sam_fixed
 from app.services.access_validation import check_access
 from app.services.acronym_store import (
     add_acronym,
@@ -487,7 +488,14 @@ def _sam_plan_to_issues(sam_result: dict | None) -> list[dict]:
 
 
 def _dedup_sam_issues(sam_issues: list[dict], existing_issues: list[dict]) -> list[dict]:
-    """Remove Sam's issues that duplicate existing ones (3+ significant word overlap)."""
+    """Remove Sam's issues that duplicate existing ones (3+ significant word overlap).
+
+    Division of labor with the exact rule-id filter (reporting_ownership.py):
+    the exact filter handles validator↔Sam double-reporting for shared rule ids
+    (FP/STY/SPE/TAB) before this runs, so those never reach here. This fuzzy
+    dedup covers only Sam-native notes (SAM_TITLE, SAM_AUTH, …) whose wording
+    may restate a validator or LLM finding under a different id.
+    """
     def _words(text: str) -> set[str]:
         return {w for w in re.sub(r"[^a-z0-9 ]", "", text.lower()).split() if len(w) > 3}
 
@@ -500,6 +508,63 @@ def _dedup_sam_issues(sam_issues: list[dict], existing_issues: list[dict]) -> li
             deduped.append(issue)
     return deduped
 
+def _build_changes_made(pipeline_result: dict) -> dict:
+    """Aggregate every tracked-change correction into the three 'changes made' groups.
+    only things that actually changedthe document count here. flag/comment-only
+    passes (short paragraphs, reference order) are excluded, those
+    belong in 'needs manual review', not in a 'changes made' count.
+    """
+
+    # ── References and citations ──────────────────────────────────────────
+    # run_font_actions spans reference text AND body; counted here because its
+    # primary target is reconstructed reference/DOI runs.
+    references = (
+        len(pipeline_result.get("ref_format_corrections") or [])
+        + len(pipeline_result.get("reference_indent_actions") or [])
+        + len(pipeline_result.get("run_font_actions") or [])
+    )
+
+    # ── Structure and front page ──────────────────────────────────────────
+    structure = (
+        _count_sam_changes(pipeline_result.get("sam_result"))
+        + len(pipeline_result.get("heading_corrections") or [])   
+        + len(pipeline_result.get("caption_apa7_actions") or [])
+        + len(pipeline_result.get("table_n_actions") or [])
+        + len(pipeline_result.get("table_section_boundary_actions") or [])
+        + len(pipeline_result.get("table_keep_together_actions") or [])
+        + len(pipeline_result.get("table_page_break_actions") or [])
+        + len(pipeline_result.get("appendix_actions") or [])
+    )
+
+    # ── Spelling and grammar ──────────────────────────────────────────────
+    language = (
+        len(pipeline_result.get("spelling_corrections") or [])
+        + len(pipeline_result.get("spell_check_corrections") or [])
+        + len(pipeline_result.get("acronym_actions") or [])
+        + len(pipeline_result.get("abbreviation_actions") or [])
+        + len(pipeline_result.get("number_word_corrections") or [])
+        + len(pipeline_result.get("decimal_actions") or [])
+        + len(pipeline_result.get("contingent_grammar_actions") or [])
+        + len(pipeline_result.get("coherence_actions") or [])
+    )
+
+    groups = [
+        {"key": "references", "label": "References and citations", "count": references},
+        {"key": "structure",  "label": "Structure and front page", "count": structure},
+        {"key": "language",   "label": "Spelling and grammar",     "count": language},
+    ]
+
+    return {
+        "total": sum(g["count"] for g in groups),
+        "groups": groups,
+    }
+
+
+def _count_sam_changes(sam_result: dict | None) -> int:
+    """Count Sam's tracked changes via the same plan→issue conversion the
+    results endpoint already uses. NOTE: _sam_plan_to_issues only converts a
+    subset of Sam's plan keys, so this slightly undercounts Sam's ~40 stages."""
+    return len(_sam_plan_to_issues(sam_result))
 
 @app.get("/")
 def openeditor():
@@ -928,6 +993,7 @@ def upload():
               "stage_errors":            pipeline_result.get("stage_errors", []),
               "output_path":             pipeline_result.get("output_path") or output_path,
         })
+        _sessions[session_id]["changes_made"] = _build_changes_made(pipeline_result)
 
 
     # Start thread in background and return standard success response
@@ -1048,11 +1114,15 @@ def results(session_id):
                 fp_overrides[sv.rule_id] = sv.reason
 
     # ── Categories ───────────────────────────────────────────────────────────
+    # Sam-fixed rules are excluded everywhere here: Sam already repaired them
+    # as tracked changes, so counting them would double-report (see
+    # app/domain/reporting_ownership.py).
     def _det(statuses, *prefixes):
         return sum(
             1 for r in det_results
             if r["status"] in statuses
             and any(r["rule_id"].startswith(p) for p in prefixes)
+            and not is_sam_fixed(r["rule_id"])
             and r["rule_id"] not in fp_overrides  # don't count overridden FPs as fails
         )
 
@@ -1082,6 +1152,12 @@ def results(session_id):
     issues = []
 
     for r in det_results:
+        if is_sam_fixed(r["rule_id"]):
+            # Sam already fixed this as a tracked change — it is counted in
+            # changes_made, not reported here. This exclusion wins over the
+            # LLM false-positive downgrade below: a fixed issue needs no
+            # false-positive note. (reporting_ownership.py)
+            continue
         if r["rule_id"] in fp_overrides:
             # LLM flagged as false positive — keep visible but downgrade to warn
             issues.append({
@@ -1184,6 +1260,7 @@ def results(session_id):
         "llm_available":        llm_result is not None,
         "llm_error":            llm_error,
         "stage_errors":         session.get("stage_errors", []),
+        "changes_made":         session.get("changes_made", {"total": 0, "groups": []}),
     })
 
 

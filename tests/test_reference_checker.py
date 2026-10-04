@@ -517,3 +517,90 @@ class TestCheckTextDOIs:
         results = check_text_dois(refs, delay=0)
         assert len(results) == 1
         assert len(call_log) == 1
+
+    # ── D-03: the LLM may change a verdict, never create prose for the author ──
+
+_MARKER = "FABRICATED-REASONING-abc123xyz"
+
+
+def _fake_llm(verdict):
+    """Return a _llm_check_reference stub that embeds a distinctive marker."""
+    def _stub(ref_text, top_cr_result):
+        return verdict
+    return _stub
+
+
+class TestLLMVerificationConstraints:
+    def test_llm_prose_never_reaches_author_on_warn(self, monkeypatch):
+        monkeypatch.setattr(rc, "_query_crossref", lambda ref: None)
+        monkeypatch.setattr(
+            rc, "_llm_check_reference",
+            _fake_llm({
+                "appears_complete": True,
+                "issues": [],
+                "reason": f"the reference looks real: {_MARKER}",
+            }),
+        )
+
+        result = rc.verify_reference(1, "Smith, J. (2020). A study. Journal, 1(1), 1-5.")
+
+        assert result["status"] == "warn"
+        assert result["status"] != "pass"          # never flip fail -> pass
+        assert _MARKER not in result["message"]    # model prose stays out
+        assert "we could not confirm this reference automatically" in result["message"]
+
+    def test_llm_prose_never_reaches_author_on_fail(self, monkeypatch):
+        monkeypatch.setattr(rc, "_query_crossref", lambda ref: None)
+        monkeypatch.setattr(
+            rc, "_llm_check_reference",
+            _fake_llm({
+                "appears_complete": False,
+                "issues": [f"missing year: {_MARKER}"],
+                "reason": _MARKER,
+            }),
+        )
+
+        result = rc.verify_reference(2, "Broken, R. (2020). A thing.")
+
+        assert result["status"] == "fail"
+        assert _MARKER not in result["message"]
+        assert "we could not verify this reference" in result["message"]
+
+    def test_network_failure_is_not_cached(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(rc, "_CACHE_PATH", tmp_path / "cache.json")
+        rc._cache_data = {}
+
+        def _boom(*args, **kwargs):
+            raise rc.requests.exceptions.ConnectionError("no network")
+
+        monkeypatch.setattr(rc.requests, "get", _boom)
+
+        result = rc._query_crossref("UNIQUE_REF_NO_NETWORK_001")
+
+        assert result is None
+        assert "search:UNIQUE_REF_NO_NETWORK_001" not in rc._cache_data
+
+    def test_cn_404_cached_but_network_failure_not(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(rc, "_CACHE_PATH", tmp_path / "cache.json")
+        rc._cache_data = {}
+
+        class _Resp404:
+            status_code = 404
+
+        class _Resp500:
+            status_code = 503
+
+        def _get(url, **kwargs):
+            if "doi.org/10.0000/notfound" in url:
+                return _Resp404()
+            raise rc.requests.exceptions.Timeout("slow upstream")
+
+        monkeypatch.setattr(rc.requests, "get", _get)
+
+        # 404 → genuine negative, cached
+        assert rc._get_apa_via_content_negotiation("10.0000/notfound") is None
+        assert rc._cache_get("cn:10.0000/notfound") == "__none__"
+
+        # network timeout → not cached
+        assert rc._get_apa_via_content_negotiation("10.0000/timeout") is None
+        assert "cn:10.0000/timeout" not in rc._cache_data

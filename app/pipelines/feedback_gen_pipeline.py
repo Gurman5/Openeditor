@@ -48,11 +48,12 @@ from app.services.table_n_notation_comments import apply_table_n_notation_commen
 from app.services.table_page_breaks import apply_table_page_breaks
 from app.services.table_section_boundary_comments import apply_table_section_boundary_comments
 
+from app.domain.reporting_ownership import SAM_FIXED_RULE_IDS
+
 log = logging.getLogger(__name__)
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WQ = f"{{{W}}}"
-
 
 def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower())
@@ -710,7 +711,7 @@ def doc_analysis_pipeline(
             f_ref       = executor.submit(check_and_report, docx_path)
 
             deterministic_check_results = f_validate.result()
-            _progress(30, "refs")
+            _progress(30, "structure")
             ref_check_result            = f_ref.result()
             _progress(42, "refs")
 
@@ -728,14 +729,11 @@ def doc_analysis_pipeline(
             _progress(68, "building")
 
         # ── Phase 3: Sequential document assembly ────────────────────────────────
-        # Sam handles all front-page items (FP*) via tracked changes — skip them here
-        # so the same issue doesn't appear as both a comment and a tracked change.
-        _SAM_COVERED = {"FP"}
         filtered_report = {
             **deterministic_check_results,
             "results": [
                 r for r in deterministic_check_results["results"]
-                if not any(r["rule_id"].startswith(p) for p in _SAM_COVERED)
+                if r["rule_id"] not in SAM_FIXED_RULE_IDS
             ],
         }
 

@@ -1,0 +1,269 @@
+
+<style>
+  h2.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .wrap{padding:1rem 0}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.25rem}
+  .tab{background:none;border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:5px 12px;font-size:13px;color:var(--text-secondary);cursor:pointer;transition:background .15s,color .15s}
+  .tab:hover{background:var(--surface-1)}
+  .tab.active{background:var(--bg-accent);border-color:var(--border-accent);color:var(--text-accent);font-weight:500}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:1rem;font-size:12px;color:var(--text-secondary)}
+  .legend-item{display:flex;align-items:center;gap:5px}
+  .legend-dot{width:10px;height:10px;border-radius:50%}
+  .detail-panel{background:var(--surface-1);border:0.5px solid var(--border);border-radius:var(--radius);padding:.75rem 1rem;font-size:13px;color:var(--text-secondary);margin-top:1rem;min-height:40px;transition:opacity .2s}
+  .detail-panel strong{color:var(--text-primary);font-weight:500}
+</style>
+<h2 class="sr-only">OpenEditor interactive sequence diagram showing user journeys across multiple scenarios</h2>
+<div class="wrap">
+  <div class="tabs" id="tabs"></div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#1D9E75"></div>User (writer)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#534AB7"></div>WriterBot UI</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#BA7517"></div>Flask backend</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#993C1D"></div>OpenAI API</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#185FA5"></div>Crossref API</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#5F5E5A"></div>MemberPress</div>
+  </div>
+  <svg id="seq" width="100%" viewBox="0 0 680 520" role="img">
+    <title>OpenEditor sequence diagram</title>
+    <desc>Step-by-step sequence diagram for OpenEditor user journeys, switchable by scenario tab</desc>
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </marker>
+    </defs>
+    <!-- Actor lanes rendered by JS -->
+    <g id="actors"></g>
+    <g id="lifelines"></g>
+    <g id="messages"></g>
+  </svg>
+  <div class="detail-panel" id="detail">Click any message arrow to see details.</div>
+</div>
+
+<script>
+const ACTORS = [
+  {id:"user",   label:"User",        color:"#1D9E75", fill:"#E1F5EE", x:60},
+  {id:"ui",     label:"WriterBot UI",color:"#534AB7", fill:"#EEEDFE", x:200},
+  {id:"flask",  label:"Flask",       color:"#BA7517", fill:"#FAEEDA", x:340},
+  {id:"openai", label:"OpenAI",      color:"#993C1D", fill:"#FAECE7", x:466},
+  {id:"xref",   label:"Crossref",    color:"#185FA5", fill:"#E6F1FB", x:572},
+  {id:"member", label:"MemberPress", color:"#5F5E5A", fill:"#F1EFE8", x:648},
+];
+
+const SCENARIOS = [
+  {
+    id:"happy",
+    label:"Happy path",
+    steps:[
+      {from:"user",   to:"member", label:"Visit WriterBot page",         note:"<strong>Authentication:</strong> MemberPress checks WordPress session. Members only — no separate login needed.",  type:"sync"},
+      {from:"member", to:"ui",     label:"Session valid → serve page",   note:"<strong>Access granted:</strong> MemberPress confirms membership; the WriterBot HTML/CSS/JS is served.",           type:"return"},
+      {from:"user",   to:"ui",     label:"Drop/browse .docx file",       note:"<strong>File upload:</strong> Only .doc/.docx accepted. Max 20 MB enforced client-side before any upload starts.", type:"sync"},
+      {from:"ui",     to:"flask",  label:"POST /upload (multipart)",     note:"<strong>Backend ingestion:</strong> Flask receives the file, validates type and size server-side as a second check.", type:"sync"},
+      {from:"flask",  to:"flask",  label:"Run structural checks (APA7)", note:"<strong>Structural pass:</strong> Checks headings, front-page elements, section order, formatting against APA7 rules.", type:"self"},
+      {from:"flask",  to:"xref",   label:"Verify references (DOIs)",     note:"<strong>Crossref lookup:</strong> Each reference is queried against the Crossref API to validate DOIs and metadata.", type:"sync"},
+      {from:"xref",   to:"flask",  label:"Return verification results",  note:"<strong>Ref results:</strong> Crossref returns pass/fail per reference. Unresolvable DOIs are flagged as issues.",  type:"return"},
+      {from:"flask",  to:"openai", label:"Send manuscript for review",   note:"<strong>AI editorial pass:</strong> Manuscript text sent to OpenAI. The OAPA key is held by Sam Perry.",            type:"sync"},
+      {from:"openai", to:"flask",  label:"Return editorial comments",    note:"<strong>AI response:</strong> Inline editorial notes returned. Budget is modest (~$10 for full CopyBot build).",    type:"return"},
+      {from:"flask",  to:"flask",  label:"Build annotated .docx",        note:"<strong>Output generation:</strong> Structural, ref, and AI comments are written as tracked changes into a new .docx.", type:"self"},
+      {from:"flask",  to:"ui",     label:"Return results + download URL",note:"<strong>Results payload:</strong> Summary stats (total issues, critical, refs verified/failed) returned to the UI.", type:"return"},
+      {from:"ui",     to:"user",   label:"Show results summary",         note:"<strong>Results page:</strong> Category bars, issue counts, tab breakdown (Editorial / Structure / References).",   type:"return"},
+      {from:"user",   to:"ui",     label:"Click Download",               note:"<strong>Download:</strong> Reviewed .docx downloaded. File is not stored — modal warns user before navigating away.", type:"sync"},
+    ]
+  },
+  {
+    id:"fileerr",
+    label:"Bad file",
+    steps:[
+      {from:"user",   to:"member", label:"Visit WriterBot page",       note:"<strong>Auth check:</strong> MemberPress validates session as normal.",                                              type:"sync"},
+      {from:"member", to:"ui",     label:"Session valid → serve page", note:"<strong>Page served:</strong> Member confirmed, UI loaded.",                                                         type:"return"},
+      {from:"user",   to:"ui",     label:"Drop non-.docx file (e.g. PDF)", note:"<strong>File validation:</strong> Client-side check runs immediately on file selection — no upload happens.",  type:"sync"},
+      {from:"ui",     to:"user",   label:"Inline error: wrong file type",  note:"<strong>Error state:</strong> Red error banner shown below the drop zone. Submit button stays disabled.",       type:"return"},
+      {from:"user",   to:"ui",     label:"Drop .docx over 20 MB",      note:"<strong>Size check:</strong> File size validated client-side before any network request.",                           type:"sync"},
+      {from:"ui",     to:"user",   label:"Inline error: file too large", note:"<strong>Error state:</strong> Error shown; user must select a different file. Max is 20 MB matching CopyBot.",   type:"return"},
+      {from:"user",   to:"ui",     label:"Drop valid .docx under 20 MB",note:"<strong>Valid file:</strong> Validation passes, Submit button enables.",                                           type:"sync"},
+      {from:"ui",     to:"user",   label:"Submit button enabled",       note:"<strong>Ready state:</strong> File name shown in the UI so user can confirm the correct file before submitting.",  type:"return"},
+    ]
+  },
+  {
+    id:"timeout",
+    label:"Timeout / cancel",
+    steps:[
+      {from:"user",   to:"ui",    label:"Upload valid .docx",          note:"<strong>Upload:</strong> Valid file uploaded, processing begins.",                                                   type:"sync"},
+      {from:"ui",     to:"flask", label:"POST /upload → processing",   note:"<strong>Backend starts:</strong> Structural checks, Crossref, and OpenAI steps begin sequentially.",               type:"sync"},
+      {from:"ui",     to:"user",  label:"Show processing screen",      note:"<strong>Processing UI:</strong> Spinner, file name, 4-step progress indicator, rotating OAPA abstract carousel.", type:"return"},
+      {from:"user",   to:"ui",    label:"Click Cancel",                note:"<strong>Cancel:</strong> Cancel button present during processing. Technical feasibility (mid-pipeline abort) TBC with Humaid/Gurman.", type:"sync"},
+      {from:"ui",     to:"flask", label:"POST /cancel (if feasible)",  note:"<strong>Backend cancel:</strong> Flask attempts to abort the OpenAI request. ChatGPT has a stop button — Flask equivalent TBC.", type:"sync"},
+      {from:"ui",     to:"user",  label:"Reset to upload screen",      note:"<strong>Reset:</strong> UI returns to upload phase. No file is retained.",                                          type:"return"},
+      {from:"flask",  to:"ui",    label:"10-min timeout fires",        note:"<strong>Timeout:</strong> CopyBot times out at 10 min. OpenEditor to match this. Error banner shown to user.",    type:"return"},
+      {from:"ui",     to:"user",  label:"Error banner: timed out",     note:"<strong>Error state:</strong> User sees a clear message and can re-submit.",                                        type:"return"},
+    ]
+  },
+  {
+    id:"noissues",
+    label:"No issues found",
+    steps:[
+      {from:"user",   to:"ui",    label:"Upload valid .docx",           note:"<strong>Upload:</strong> Clean manuscript submitted.",                                                               type:"sync"},
+      {from:"ui",     to:"flask", label:"POST /upload",                 note:"<strong>Processing:</strong> All three passes run — structural, Crossref, and AI.",                               type:"sync"},
+      {from:"flask",  to:"xref",  label:"Verify references",            note:"<strong>Crossref:</strong> All DOIs resolve cleanly.",                                                              type:"sync"},
+      {from:"xref",   to:"flask", label:"All refs verified ✓",          note:"<strong>Clean refs:</strong> No failed lookups returned.",                                                          type:"return"},
+      {from:"flask",  to:"openai",label:"AI editorial review",          note:"<strong>AI pass:</strong> OpenAI reviews for editorial issues.",                                                    type:"sync"},
+      {from:"openai", to:"flask", label:"No editorial flags",           note:"<strong>Clean AI result:</strong> No substantive issues found.",                                                   type:"return"},
+      {from:"flask",  to:"ui",    label:"Return: zero issues",          note:"<strong>Result payload:</strong> All counts are zero.",                                                             type:"return"},
+      {from:"ui",     to:"user",  label:"Show green check marks",       note:"<strong>'Unicorn' page:</strong> Joey noted this screen is almost never seen. Green ticks shown per category — designed but rare.", type:"return"},
+      {from:"user",   to:"ui",    label:"Download reviewed .docx",      note:"<strong>Download:</strong> Even with no issues, the annotated file is produced and available.",                   type:"sync"},
+    ]
+  },
+  {
+    id:"resubmit",
+    label:"Re-submit flow",
+    steps:[
+      {from:"user",   to:"ui",    label:"Download reviewed .docx",       note:"<strong>Download:</strong> User downloads the reviewed file.",                                                    type:"sync"},
+      {from:"ui",     to:"user",  label:"File downloads",                note:"<strong>File saved:</strong> Reviewed .docx saved to user's device. Not retained by server.",                   type:"return"},
+      {from:"user",   to:"ui",    label:"Click 'Submit another document'",note:"<strong>Re-submit:</strong> Button visible after results. Loops back to upload phase.",                         type:"sync"},
+      {from:"ui",     to:"user",  label:"Modal: 'Have you downloaded?'", note:"<strong>Guard modal:</strong> Michael suggested this — confirms download before navigating away, since nothing is stored.", type:"return"},
+      {from:"user",   to:"ui",    label:"Confirm → back to upload",      note:"<strong>Reset:</strong> UI resets cleanly to the upload screen. No session state or history retained.",         type:"sync"},
+      {from:"ui",     to:"user",  label:"Upload screen shown fresh",     note:"<strong>Fresh state:</strong> No left-panel history (Concept B's history panel was scoped out — no DB).",       type:"return"},
+    ]
+  },
+];
+
+let activeScenario = 0;
+let activeStep = -1;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("seq");
+const actorsG = document.getElementById("actors");
+const lifelinesG = document.getElementById("lifelines");
+const messagesG = document.getElementById("messages");
+const detail = document.getElementById("detail");
+
+function px(actor){ return ACTORS.find(a=>a.id===actor).x; }
+
+function drawActors(){
+  actorsG.innerHTML="";
+  ACTORS.forEach(a=>{
+    const g = document.createElementNS(SVG_NS,"g");
+    const rect = document.createElementNS(SVG_NS,"rect");
+    rect.setAttribute("x", a.x-38); rect.setAttribute("y",6);
+    rect.setAttribute("width",76); rect.setAttribute("height",32);
+    rect.setAttribute("rx",6); rect.setAttribute("fill",a.fill);
+    rect.setAttribute("stroke",a.color); rect.setAttribute("stroke-width","0.5");
+    const txt = document.createElementNS(SVG_NS,"text");
+    txt.setAttribute("x",a.x); txt.setAttribute("y",25);
+    txt.setAttribute("text-anchor","middle"); txt.setAttribute("dominant-baseline","central");
+    txt.setAttribute("class","ts"); txt.setAttribute("fill",a.color);
+    txt.setAttribute("font-weight","500"); txt.setAttribute("font-size","10");
+    txt.textContent = a.label;
+    g.appendChild(rect); g.appendChild(txt);
+    actorsG.appendChild(g);
+  });
+}
+
+function drawLifelines(count){
+  lifelinesG.innerHTML="";
+  const bottom = 60 + count*40 + 20;
+  ACTORS.forEach(a=>{
+    const line = document.createElementNS(SVG_NS,"line");
+    line.setAttribute("x1",a.x); line.setAttribute("y1",38);
+    line.setAttribute("x2",a.x); line.setAttribute("y2",bottom);
+    line.setAttribute("stroke","var(--border-strong)");
+    line.setAttribute("stroke-width","0.5");
+    line.setAttribute("stroke-dasharray","4 3");
+    lifelinesG.appendChild(line);
+  });
+  svg.setAttribute("viewBox","0 0 680 "+(bottom+20));
+}
+
+function drawMessages(steps){
+  messagesG.innerHTML="";
+  steps.forEach((s,i)=>{
+    const y = 60 + i*40;
+    const isSelf = s.from===s.to;
+    const x1 = px(s.from), x2 = px(s.to);
+    const isReturn = s.type==="return";
+    const g = document.createElementNS(SVG_NS,"g");
+    g.style.cursor="pointer";
+
+    if(isSelf){
+      // Self-loop
+      const path = document.createElementNS(SVG_NS,"path");
+      path.setAttribute("d",`M${x1},${y} C${x1+30},${y} ${x1+30},${y+18} ${x1},${y+18}`);
+      path.setAttribute("fill","none");
+      path.setAttribute("stroke","var(--border-stronger)");
+      path.setAttribute("stroke-width","1");
+      path.setAttribute("marker-end","url(#arrow)");
+      const lbl = document.createElementNS(SVG_NS,"text");
+      lbl.setAttribute("x",x1+34); lbl.setAttribute("y",y+10);
+      lbl.setAttribute("class","ts"); lbl.setAttribute("font-size","10");
+      lbl.setAttribute("fill","var(--text-secondary)");
+      lbl.textContent = s.label;
+      g.appendChild(path); g.appendChild(lbl);
+    } else {
+      const line = document.createElementNS(SVG_NS,"line");
+      const lx1 = isReturn ? x2 : x1;
+      const lx2 = isReturn ? x1 : x2;
+      line.setAttribute("x1",lx1); line.setAttribute("y1",y);
+      line.setAttribute("x2",lx2); line.setAttribute("y2",y);
+      line.setAttribute("stroke", isReturn ? "var(--border-stronger)" : "var(--text-secondary)");
+      line.setAttribute("stroke-width",isReturn?"0.75":"1.25");
+      line.setAttribute("stroke-dasharray",isReturn?"5 3":"none");
+      line.setAttribute("marker-end","url(#arrow)");
+      const mid = (lx1+lx2)/2;
+      const lbl = document.createElementNS(SVG_NS,"text");
+      lbl.setAttribute("x",mid); lbl.setAttribute("y",y-6);
+      lbl.setAttribute("text-anchor","middle");
+      lbl.setAttribute("class","ts"); lbl.setAttribute("font-size","10");
+      lbl.setAttribute("fill","var(--text-secondary)");
+      lbl.textContent = s.label;
+      g.appendChild(line); g.appendChild(lbl);
+    }
+
+    // Step number dot
+    const dot = document.createElementNS(SVG_NS,"circle");
+    dot.setAttribute("cx","36"); dot.setAttribute("cy",y);
+    dot.setAttribute("r","9");
+    dot.setAttribute("fill","var(--surface-1)");
+    dot.setAttribute("stroke","var(--border-strong)");
+    dot.setAttribute("stroke-width","0.5");
+    const num = document.createElementNS(SVG_NS,"text");
+    num.setAttribute("x","36"); num.setAttribute("y",y);
+    num.setAttribute("text-anchor","middle"); num.setAttribute("dominant-baseline","central");
+    num.setAttribute("class","ts"); num.setAttribute("font-size","9");
+    num.setAttribute("fill","var(--text-muted)");
+    num.textContent = i+1;
+    g.appendChild(dot); g.appendChild(num);
+
+    g.addEventListener("click", ()=> selectStep(i, steps));
+    g.addEventListener("mouseenter", ()=> g.setAttribute("opacity","0.75"));
+    g.addEventListener("mouseleave", ()=> g.setAttribute("opacity","1"));
+    messagesG.appendChild(g);
+  });
+}
+
+function selectStep(i, steps){
+  activeStep = i;
+  detail.innerHTML = steps[i].note;
+}
+
+function render(idx){
+  activeScenario = idx;
+  activeStep = -1;
+  detail.innerHTML = "Click any message arrow to see details.";
+  const scenario = SCENARIOS[idx];
+  drawActors();
+  drawLifelines(scenario.steps.length);
+  drawMessages(scenario.steps);
+  document.querySelectorAll(".tab").forEach((t,j)=>t.classList.toggle("active",j===idx));
+}
+
+// Build tabs
+const tabsEl = document.getElementById("tabs");
+SCENARIOS.forEach((s,i)=>{
+  const btn = document.createElement("button");
+  btn.className = "tab"+(i===0?" active":"");
+  btn.textContent = s.label;
+  btn.onclick = ()=> render(i);
+  tabsEl.appendChild(btn);
+});
+
+render(0);
+</script>

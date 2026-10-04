@@ -5,6 +5,7 @@ import re
 import time
 import unicodedata
 import zipfile
+import logging
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from app.services.reference_reconstructor import (
 )
 from app.services.reference_type_checker import check_reference_type_style
 
+log = logging.getLogger(__name__)
 # ── Disk cache for CrossRef API responses ────────────────────────────────────
 # Enabled by default; set CROSSREF_CACHE=0 to disable (e.g. in production).
 # Cache file lives next to this file so it's easy to find and delete.
@@ -597,10 +599,12 @@ def _query_crossref(reference_text: str) -> dict | None:
         resp.raise_for_status()
         items = resp.json().get("message", {}).get("items", [])
         result = items[0] if items else None
+        # A real "no results" (HTTP 200, empty list) is safe to cache. A
+        # network/timeout failure returns below WITHOUT caching.
+        _cache_set(cache_key, result if result is not None else "__none__")
+        return result
     except requests.RequestException:
-        result = None
-    _cache_set(cache_key, result if result is not None else "__none__")
-    return result
+        return None
 
 
 _APA_CN_HEADERS = {
@@ -622,8 +626,12 @@ def _get_apa_via_content_negotiation(doi: str) -> str | None:
             timeout=10,
             allow_redirects=True,
         )
-        if resp.status_code != 200:
+        if resp.status_code == 404:
+            # Genuine "no such DOI" — safe to cache permanently.
             _cache_set(cache_key, "__none__")
+            return None
+        if resp.status_code != 200:
+            # 5xx / 429 / other — transient or rate-limit; do not cache.
             return None
         # CrossRef CN responses are UTF-8 but the Content-Type header often
         # omits the charset, causing requests to default to ISO-8859-1 and
@@ -636,7 +644,6 @@ def _get_apa_via_content_negotiation(doi: str) -> str | None:
         _cache_set(cache_key, text)
         return text
     except requests.RequestException:
-        _cache_set(cache_key, "__none__")
         return None
 
 
@@ -773,19 +780,23 @@ def verify_reference(entry_num: int, ref: str) -> dict:
         # CrossRef verified the paper but didn't return a DOI — just pass.
         return _result(rule_id, "pass", f"Entry {entry_num}: verified in CrossRef")
 
-    # CrossRef couldn't verify — ask the LLM for a second opinion
+    # CrossRef couldn't verify — ask the LLM for a second opinion but never
+    # surface its prose to the author. Its verdict may change fail -> warn,
+    # nothing more, and only when CrossRef is silent
     llm = _llm_check_reference(ref, match)
     if llm is not None:
+        log.info("LLM citation verdict for entry %d: %r", entry_num, llm)
         if llm.get("appears_complete"):
             return _result(rule_id, "warn",
-                f"Entry {entry_num}: not found in CrossRef but reference appears complete — "
-                f"{llm.get('reason', '')}: {ref[:80]}{doi_hint}")
-        issues_str = "; ".join(llm.get("issues", [])) or llm.get("reason", "")
+                f"Entry {entry_num}: we could not confirm this reference automatically — "
+                f"please check it against CrossRef: {ref[:80]}{doi_hint}")
         return _result(rule_id, "fail",
-            f"Entry {entry_num}: could not verify — {issues_str}: {ref[:80]}{doi_hint}")
+            f"Entry {entry_num}: we could not verify this reference — "
+            f"please confirm it exists and is complete: {ref[:80]}{doi_hint}")
 
     return _result(rule_id, "fail",
-        f"Entry {entry_num}: could not verify — reference may not exist: {ref[:80]}{doi_hint}")
+        f"Entry {entry_num}: we could not verify this reference — "
+        f"please confirm it exists and is complete: {ref[:80]}{doi_hint}")
 
 def _build_structured_reference(entry_num: int, ref: str, cref_result: dict) -> dict:
     """Z-06: build one structured reference row from an already-computed
