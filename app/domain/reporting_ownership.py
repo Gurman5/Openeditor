@@ -26,8 +26,8 @@ comment-only.
 # silent style edit. Excluded from the document comments (filtered_report) and
 # from the payload issues[] (results()). Still counted in changes_made.
 SAM_FIXED_RULE_IDS = frozenset({
-    "FP001", "FP002", "FP003", "FP004", "FP005", "FP006", "FP007", "FP011",
-    "STY003", "STY004", "SPE002", "TAB001", "TAB002",
+    "FP001", "FP002", "FP003", "FP005", "FP006", "FP011",
+    "STY003", "STY004", "SPE002", "TAB001",
 })
 
 
@@ -59,8 +59,9 @@ FAMILY_VERDICTS = {
     # changes); length/count rules stay comments.
     "FP": ("comment",
            "Default is comment-only; the Sam-fixed presence rules below are "
-           "the exception, not the family verdict.",
-           ["FP001", "FP002", "FP003", "FP004", "FP005", "FP006", "FP007", "FP011"]),
+           "the exception, not the family verdict. FP004/FP007 were removed "
+           "from the Sam-fixed set: no Sam pass repairs them.",
+           ["FP001", "FP002", "FP003", "FP005", "FP006", "FP011"]),
     # Page/section breaks. SPE002 (page break before Introduction) is inserted
     # by Sam; the rest are check-only.
     "SPE": ("comment",
@@ -79,11 +80,13 @@ FAMILY_VERDICTS = {
     "STY": ("comment",
             "Default is comment-only; STY003/STY004 are normalised by Sam.",
             ["STY003", "STY004"]),
-    # Tables. TAB001 (title follows number) and TAB002 (sequential numbering)
-    # are repaired by Sam's tracked table formatting.
+    # Tables. TAB001 (title follows number) is repaired by Sam's tracked
+    # table formatting. TAB002 (sequential numbering) is NOT — no Sam pass
+    # renumbers; it stays comment-only.
     "TAB": ("comment",
-            "Default is comment-only; TAB001/TAB002 are repaired by Sam.",
-            ["TAB001", "TAB002"]),
+            "Default is comment-only; TAB001 is repaired by Sam. TAB002 stays "
+            "comment-only: no Sam pass renumbers tables.",
+            ["TAB001"]),
     # Reference verification. Never in issues[]; each row feeds the
     # references section (ref_verifications) with its own status + DOI link.
     "CREF": ("ref-section", "Per-reference verification row, not an issue."),
