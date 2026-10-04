@@ -48,20 +48,12 @@ from app.services.table_n_notation_comments import apply_table_n_notation_commen
 from app.services.table_page_breaks import apply_table_page_breaks
 from app.services.table_section_boundary_comments import apply_table_section_boundary_comments
 
+from app.domain.reporting_ownership import SAM_FIXED_RULE_IDS
+
 log = logging.getLogger(__name__)
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WQ = f"{{{W}}}"
-
-# ── Reporting ownership (D-01 step 4) ─────────────────────────────────────
-# Rules Sam's build_edited_document actually FIXES (tracked change or silent
-# edit) must not also be commented, or the author sees the issue twice.
-# Everything else is comment-only — never drop it, or the issue silently
-# disappears (a correctness bug, e.g. FP008/FP009 previously dropped by "FP").
-_SAM_FIXED_RULE_IDS = frozenset({
-    "FP001", "FP002", "FP003", "FP004", "FP005", "FP006", "FP007", "FP011",
-    "STY003", "STY004", "SPE002", "TAB001", "TAB002",
-})
 
 def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower())
@@ -719,7 +711,7 @@ def doc_analysis_pipeline(
             f_ref       = executor.submit(check_and_report, docx_path)
 
             deterministic_check_results = f_validate.result()
-            _progress(30, "refs")
+            _progress(30, "structure")
             ref_check_result            = f_ref.result()
             _progress(42, "refs")
 
@@ -737,7 +729,7 @@ def doc_analysis_pipeline(
             **deterministic_check_results,
             "results": [
                 r for r in deterministic_check_results["results"]
-                if r["rule_id"] not in _SAM_FIXED_RULE_IDS
+                if r["rule_id"] not in SAM_FIXED_RULE_IDS
             ],
         }
 
