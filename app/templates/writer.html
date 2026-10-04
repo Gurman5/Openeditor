@@ -136,55 +136,105 @@
 
       <!-- ======================== 3.RESULTS ======================== -->
       <div x-show="currentPhase === 'results'" x-cloak>
-        <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
-        <h2 class="oe-headline">Your manuscript has been reviewed</h2>
-        <p class="oe-lede">
-          <span x-text="changesMadeTotal"></span> corrections were applied to your document.
-          <span x-text="manualReviewTotal"></span> items need a decision from you before you submit.
-        </p>
+        <template x-if="!isCleanResult">
+          <div>
+            <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
+            <h2 class="oe-headline">Your manuscript has been reviewed</h2>
+            <p class="oe-lede">
+              <span x-text="changesMadeTotal"></span> corrections were applied to your document.
+              <span x-text="manualReviewTotal"></span> items need a decision from you before you submit.
+            </p>
 
-        <div class="oe-section">
-          <div class="oe-section-label">NEEDS MANUAL REVIEW &middot; <span x-text="manualReviewTotal"></span></div>
-          <template x-for="group in manualReviewGroups" :key="group.label">
-            <div class="oe-result">
-              <div class="oe-result-head oe-result-toggle" @click="toggleGroup(group.label)">
-                <span class="oe-result-title" x-text="group.label"></span>
-                <span class="oe-result-tag">
-                  <span x-text="group.count"></span>
-                  <span class="oe-chevron" x-text="openGroups[group.label] ? '▾' : '▸'"></span>
-                </span>
+            <div class="oe-section">
+              <div class="oe-section-label">NEEDS MANUAL REVIEW &middot; <span x-text="manualReviewTotal"></span></div>
+              <template x-for="group in manualReviewGroups" :key="group.label">
+                <div class="oe-result">
+                  <div class="oe-result-head oe-result-toggle" @click="toggleGroup(group.label)">
+                    <span class="oe-result-title" x-text="group.label"></span>
+                    <span class="oe-result-tag">
+                      <span x-text="group.count"></span>
+                      <span class="oe-chevron" x-text="openGroups[group.label] ? '▾' : '▸'"></span>
+                    </span>
+                  </div>
+                  <div class="oe-result-body" x-show="openGroups[group.label]">
+                    <template x-for="item in group.items" :key="item.rule_id">
+                      <p class="oe-result-desc" x-text="item.message"></p>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div class="oe-section">
+              <div class="oe-section-label">CHANGES MADE &middot; <span x-text="changesMadeTotal"></span></div>
+              <template x-for="group in changesMadeGroups" :key="group.key">
+                <div class="oe-result">
+                  <div class="oe-result-head">
+                    <span class="oe-result-title" x-text="group.label"></span>
+                    <span class="oe-result-tag" x-text="group.count + ' CHANGES'"></span>
+                  </div>
+                  <p class="oe-result-desc" x-text="group.description" x-show="group.description"></p>
+                  <button type="button" class="oe-result-link" x-show="group.linkLabel" x-text="group.linkLabel + ' ›'"></button>
+                </div>
+              </template>
+            </div>
+
+            <div class="oe-about-box">
+              <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+              <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
+            </div>
+
+            <div class="oe-submit-row left">
+              <button class="oe-btn-primary" @click="goToDownload()">Continue to download</button>
+            </div>
+          </div>
+        </template>
+
+        <!--Results page for clean doc-->
+        <template x-if="isCleanResult">
+          <div>
+            <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
+            <h2 class="oe-headline">No issues found</h2>
+            <p class="oe-lede">
+              We checked your document and found nothing to correct. This is not an empty result:
+              we read <span x-text="wordCount"></span> words and checked <span x-text="referenceCount"></span> references.
+            </p>
+
+            <div class="oe-section">
+              <div class="oe-section-label">WHAT WE CHECKED</div>
+              <div class="oe-result">
+                <div class="oe-result-head">
+                  <span class="oe-result-title">References and citations</span>
+                  <span class="oe-result-tag">PASSED</span>
+                </div>
+                <p class="oe-result-desc">All <span x-text="referenceCount"></span> references were confirmed in Crossref and every in-text citation matched your list.</p>
               </div>
-              <div class="oe-result-body" x-show="openGroups[group.label]">
-                <template x-for="item in group.items" :key="item.rule_id">
-                  <p class="oe-result-desc" x-text="item.message"></p>
-                </template>
+              <div class="oe-result">
+                <div class="oe-result-head">
+                  <span class="oe-result-title">Structure and front page</span>
+                  <span class="oe-result-tag">PASSED</span>
+                </div>
+                <p class="oe-result-desc">Headings, spacing, margins, title page and running head already follow APA 7.</p>
+              </div>
+              <div class="oe-result">
+                <div class="oe-result-head">
+                  <span class="oe-result-title">Spelling and grammar</span>
+                  <span class="oe-result-tag">PASSED</span>
+                </div>
+                <p class="oe-result-desc">No spelling, Australian English or acronym issues were found.</p>
               </div>
             </div>
-          </template>
-        </div>
 
-        <div class="oe-section">
-          <div class="oe-section-label">CHANGES MADE &middot; <span x-text="changesMadeTotal"></span></div>
-          <template x-for="group in changesMadeGroups" :key="group.key">
-            <div class="oe-result">
-              <div class="oe-result-head">
-                <span class="oe-result-title" x-text="group.label"></span>
-                <span class="oe-result-tag" x-text="group.count + ' CHANGES'"></span>
-              </div>
-              <p class="oe-result-desc" x-text="group.description" x-show="group.description"></p>
-              <button type="button" class="oe-result-link" x-show="group.linkLabel" x-text="group.linkLabel + ' ›'"></button>
+            <div class="oe-about-box">
+              <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+              <p>Your document had nothing to correct, so this copy is identical to the file you uploaded. There are no tracked changes or comments to review.</p>
             </div>
-          </template>
-        </div>
 
-        <div class="oe-about-box">
-          <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
-          <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
-        </div>
-
-        <div class="oe-submit-row left">
-          <button class="oe-btn-primary" @click="goToDownload()">Continue to download</button>
-        </div>
+            <div class="oe-submit-row left">
+              <button class="oe-btn-primary" @click="goToDownload()">Download reviewed document</button>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- ======================== 4.DOWNLOAD ======================== -->

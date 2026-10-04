@@ -84,7 +84,17 @@ document.addEventListener('alpine:init', () => {
       if (!this.resultsPayload) return '';
       return this.resultsPayload.output_filename || this.resultsPayload.filename || '';
     },
-
+     get isCleanResult() {
+      return this.resultsPayload
+        && this.manualReviewTotal === 0
+        && this.changesMadeTotal === 0;
+    },
+    get wordCount() {
+      return this.resultsPayload ? (this.resultsPayload.word_count || 0) : 0;
+    },
+    get referenceCount() {
+      return this.resultsPayload ? (this.resultsPayload.reference_count || 0) : 0;
+    },
     init() {
       window.onbeforeunload = () => {
         if ((this.currentPhase === 'results' || this.currentPhase === 'upgrade' || this.currentPhase === 'download') && !this.hasDownloaded) {

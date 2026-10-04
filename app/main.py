@@ -871,6 +871,7 @@ def upload():
         "cancel_requested": False,
         "tmp_dir": tmp_dir,
         "created_at": time.time(),
+        "word_count": total_words,
     }
 
     def _run():
@@ -1261,6 +1262,8 @@ def results(session_id):
         "llm_error":            llm_error,
         "stage_errors":         session.get("stage_errors", []),
         "changes_made":         session.get("changes_made", {"total": 0, "groups": []}),
+        "word_count":           session.get("word_count", 0),
+        "reference_count":      len(session.get("ref_check", {}).get("references", [])),
     })
 
 
