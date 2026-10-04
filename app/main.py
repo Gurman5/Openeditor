@@ -1304,7 +1304,7 @@ def download(session_id):
     def cleanup_file(response):
         if tmp_dir and os.path.isdir(tmp_dir):
             try:
-                shutil.rmtree(tmp_dir, ignore_errors=False)
+                shutil.rmtree(tmp_dir, ignore_errors=True)
             except OSError as exc:
                 log.warning("Could not clean up tmp_dir %s post-download: %s", tmp_dir, exc)
         session["status"] = "expired"
