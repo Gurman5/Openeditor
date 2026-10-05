@@ -137,7 +137,6 @@ def _sample_articles(articles: list[dict], limit: int) -> list[dict]:
             clean.append(normalised)
     if not clean:
         return [FALLBACK_ARTICLE]
-    random.shuffle(clean)
     return clean[:limit]
 
 

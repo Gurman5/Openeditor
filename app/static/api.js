@@ -163,16 +163,18 @@ export async function cancelJob(sessionId) {
  * array immediately without calling the backend if the flag is off.
  */
 export async function fetchCarouselArticles(limit = 10) {
-  if (!CAROUSEL_ENABLED) return [];
+  if (!CAROUSEL_ENABLED) return { articles: [], degraded: false };
   try {
     const response = await fetch(`/api/jutlp-articles?limit=${limit}`);
     const payload = await response.json();
-    return payload.articles || [];
+    return {
+      articles: payload.articles || [],
+      degraded: Boolean(payload.degraded),
+    };
   } catch {
-    // Fail silently — the backend already has its own fallback article;
-    // a total network failure here just means an empty carousel, not a
-    // broken screen.
-    return [];
+    // Total failure → degraded, so the UI can say so instead of silently
+    // showing the fallback.
+    return { articles: [], degraded: true };
   }
 }
 

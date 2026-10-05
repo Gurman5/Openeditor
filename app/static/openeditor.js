@@ -20,6 +20,7 @@ document.addEventListener('alpine:init', () => {
       abstract: 'This JUTLP article introduces the AI Assessment Scale as a practical framework for deciding when and how generative AI can be used in educational assessment.',
       url: 'https://open-publishing.org/journals/index.php/jutlp/article/view/810/769'
     }],
+    carouselDegraded: false,
     jutlpArticleIndex: 0,
     jutlpRotateTimer: null,
     showCancelConfirm: false,
@@ -311,8 +312,9 @@ document.addEventListener('alpine:init', () => {
       return this.jutlpArticles[this.jutlpArticleIndex];
     },
 
-    async fetchJutlpArticles() {
-      const articles = await fetchCarouselArticles();
+     async fetchJutlpArticles() {
+      const { articles, degraded } = await fetchCarouselArticles();
+      this.carouselDegraded = degraded;
       if (articles.length) {
         this.jutlpArticles = articles;
         this.jutlpArticleIndex = 0;

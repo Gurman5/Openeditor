@@ -89,6 +89,9 @@
           </div>
           <div class="oe-while-you-wait" x-show="carouselEnabled" x-cloak>
             <div class="oe-eyebrow">WHILE YOU WAIT</div>
+            <p class="oe-carousel-degraded" x-show="carouselDegraded">
+              We couldn't load the latest articles right now — showing a sample instead.
+            </p>
             <h3 class="oe-carousel-title" x-text="currentArticle.title"></h3>
             <p class="oe-carousel-author" x-text="currentArticle.author"></p>
             <p class="oe-carousel-abstract" x-text="currentArticle.abstract"></p>
