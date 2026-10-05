@@ -27,6 +27,8 @@ document.addEventListener('alpine:init', () => {
     hasDownloaded: false,
     resultsPayload: null,
     showCleanCopyNote: false,
+    showReferences: false,
+    showVerified: false,
     openGroups: [],
 
     get fileSizeLabel() {
@@ -62,10 +64,15 @@ document.addEventListener('alpine:init', () => {
       return 'Other';
     },
 
+    referenceStatusLabel(status) {
+      return { verified: 'Verified', doi_mismatch: 'DOI mismatch', not_found: 'Not found' }[status] || status;
+    },
     toggleGroup(label) {
       this.openGroups[label] = !this.openGroups[label];
     },
-    
+    viewReferences() { this.showReferences = true; },
+    backToResults() { this.showReferences = false; },
+
     get manualReviewTotal() {
       return this.manualReviewItems.length;
     },
@@ -74,6 +81,21 @@ document.addEventListener('alpine:init', () => {
       if (!this.resultsPayload) return [];
       return (this.resultsPayload.changes_made || {}).groups || [];
     },
+
+     get sortedReferences() {
+      if (!this.resultsPayload) return [];
+      const order = { not_found: 0, doi_mismatch: 1, verified: 2 };
+      return [...(this.resultsPayload.references || [])]
+        .sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3));
+    },
+    get references() {
+      return this.resultsPayload ? (this.resultsPayload.references || []) : [];
+    },
+    get notFoundReferences()  { return this.references.filter(r => r.status === 'not_found'); },
+    get doiMismatchReferences() { return this.references.filter(r => r.status === 'doi_mismatch'); },
+    get verifiedReferences()  { return this.references.filter(r => r.status === 'verified'); },
+    get attentionCount() { return this.notFoundReferences.length + this.doiMismatchReferences.length; },
+    get totalReferences() { return this.references.length; },
 
     get changesMadeTotal() {
       if (!this.resultsPayload) return 0;

@@ -23,258 +23,345 @@
       <div class="oe-signature">
         <img src="{{ url_for('static', filename='oapa-logo.png') }}" class="oapa-logo" alt="OAPA">
       </div>
-      <div class="oe-progress" x-show="currentPhase !== 'blocked'">
-        <template x-for="n in 4" :key="n">
-          <div class="oe-progress-seg" :class="{ done: n <= stepNumber() }"></div>
-        </template>
-      </div>
- 
-      <!-- ========================  1.UPLOAD STAGE  ========================  -->
-      <div x-show="currentPhase === 'upload'" x-cloak>
-        <div class="oe-eyebrow">STEP 1 OF 4 &middot; UPLOAD</div>
-        <h2 class="oe-headline">Upload your manuscript</h2>
-        <p class="oe-lede">OpenEditor corrects your document against APA7 and checks every reference against Crossref. Your original file is deleted once you download the result.</p>
-
-        <label
-          for="file-input"
-          class="oe-dz"
-          :class="{ 'has-file': selectedFile || isDragOver, 'has-error': fileError }"
-          @dragover.prevent="isDragOver = true"
-          @dragleave.prevent="isDragOver = false"
-          @drop.prevent="isDragOver = false; onFileDropped($event)">
-  
-          <input x-ref="fileInput" id="file-input" type="file" accept=".docx" @change="onFileSelected($event)">
-  
-          <template x-if="!selectedFile">
-            <div class="oe-dz-main">
-              <p>Drag and drop your Word document here</p>
-              <button type="button" class="oe-dz-browse-btn" @click.prevent.stop="$refs.fileInput.click()">Browse Files</button>
-            </div>
+      <div class ="oe-frame-scroll">
+        <div class="oe-progress" x-show="currentPhase !== 'blocked'">
+          <template x-for="n in 4" :key="n">
+            <div class="oe-progress-seg" :class="{ done: n <= stepNumber() }"></div>
           </template>
+        </div>
   
-          <template x-if="selectedFile">
-            <div class="oe-dz-main">
-              <span class="oe-dz-filename" x-text="`${selectedFile.name} · ${fileSizeLabel}`"></span>
-              <button type="button" class="oe-dz-remove" @click.prevent.stop="removeFile()">Remove</button>
-            </div>
-          </template>
-  
-          <div class="oe-dz-pill">.docx &bull; up to {{ max_upload_mb }} MB &bull; up to {{ max_word_count }} words</div>
-        </label>
-        
-        <p class="oe-error-text" x-show="fileError" x-text="fileError"></p>
-        <div class="oe-submit-row">
-          <button class="oe-btn-primary" :disabled="!canSubmit" @click="startProcessing()">
-            Continue
-          </button>
-        </div>
-      </div>
-  
+        <!-- ========================  1.UPLOAD STAGE  ========================  -->
+        <div x-show="currentPhase === 'upload'" x-cloak>
+          <div class="oe-eyebrow">STEP 1 OF 4 &middot; UPLOAD</div>
+          <h2 class="oe-headline">Upload your manuscript</h2>
+          <p class="oe-lede">OpenEditor corrects your document against APA7 and checks every reference against Crossref. Your original file is deleted once you download the result.</p>
 
-      <!-- ========================  2.PROCESSING STAGE ========================  -->
-      <!--Processing-->
-      <div x-show="currentPhase === 'processing'" x-cloak>
-        <div class="oe-eyebrow">STEP 2 OF 4 &middot; PROCESSING</div>
-        <h2 class="oe-headline">Correcting your manuscript</h2>
-        <p class="oe-lede">Still working. Longer manuscripts take a few minutes.</p>
-        <div class="oe-progress-track">
-          <div class="oe-progress-fill" :style="`width: ${processingPercent}%`"></div>
+          <label
+            for="file-input"
+            class="oe-dz"
+            :class="{ 'has-file': selectedFile || isDragOver, 'has-error': fileError }"
+            @dragover.prevent="isDragOver = true"
+            @dragleave.prevent="isDragOver = false"
+            @drop.prevent="isDragOver = false; onFileDropped($event)">
+    
+            <input x-ref="fileInput" id="file-input" type="file" accept=".docx" @change="onFileSelected($event)">
+    
+            <template x-if="!selectedFile">
+              <div class="oe-dz-main">
+                <p>Drag and drop your Word document here</p>
+                <button type="button" class="oe-dz-browse-btn" @click.prevent.stop="$refs.fileInput.click()">Browse Files</button>
+              </div>
+            </template>
+    
+            <template x-if="selectedFile">
+              <div class="oe-dz-main">
+                <span class="oe-dz-filename" x-text="`${selectedFile.name} · ${fileSizeLabel}`"></span>
+                <button type="button" class="oe-dz-remove" @click.prevent.stop="removeFile()">Remove</button>
+              </div>
+            </template>
+    
+            <div class="oe-dz-pill">.docx &bull; up to {{ max_upload_mb }} MB &bull; up to {{ max_word_count }} words</div>
+          </label>
+          
+          <p class="oe-error-text" x-show="fileError" x-text="fileError"></p>
+          <div class="oe-submit-row">
+            <button class="oe-btn-primary" :disabled="!canSubmit" @click="startProcessing()">
+              Continue
+            </button>
+          </div>
         </div>
+    
 
-        <div class="oe-timer">ELAPSED <span x-text="elapsedFormatted"></span> &middot; STOPS AUTOMATICALLY AT 10:00</div>
+        <!-- ========================  2.PROCESSING STAGE ========================  -->
+        <!--Processing-->
+        <div x-show="currentPhase === 'processing'" x-cloak>
+          <div class="oe-eyebrow">STEP 2 OF 4 &middot; PROCESSING</div>
+          <h2 class="oe-headline">Correcting your manuscript</h2>
+          <p class="oe-lede">Still working. Longer manuscripts take a few minutes.</p>
+          <div class="oe-progress-track">
+            <div class="oe-progress-fill" :style="`width: ${processingPercent}%`"></div>
+          </div>
 
-        <div class="oe-submit-row left">
-          <button class="oe-btn-ghost" @click="requestCancel()">Cancel</button>
-        </div>
-        <div class="oe-while-you-wait" x-show="carouselEnabled" x-cloak>
-          <div class="oe-eyebrow">WHILE YOU WAIT</div>
-          <h3 class="oe-carousel-title" x-text="currentArticle.title"></h3>
-          <p class="oe-carousel-author" x-text="currentArticle.author"></p>
-          <p class="oe-carousel-abstract" x-text="currentArticle.abstract"></p>
-          <div class="oe-carousel-actions">
-            <a class="oe-carousel-link" :href="currentArticle.url" target="_blank" rel="noopener">Read article</a>
-            <button class="oe-carousel-next" type="button" @click="nextJutlpArticle()">Next article</button>
-          </div> 
-        </div>
-        <!--Cancel processing guard-->
-        <div class="oe-modal-overlay" x-show="showCancelConfirm" x-cloak>
-          <div class="oe-modal">
-            <div class="oe-eyebrow">CANCEL PROCESSING</div>
-            <h2 class="oe-headline">Stop working on your manuscript?</h2>
-            <p class="oe-lede">Processing will stop and your upload will be deleted. You will need to upload your file again to start over.</p>
-            <div class="oe-modal-actions">
-              <button class="oe-btn-primary" @click="keepProcessing()">Keep Processing</button>
-              <button class="oe-btn-ghost" @click="confirmCancel()">Cancel and Start Over</button>
+          <div class="oe-timer">ELAPSED <span x-text="elapsedFormatted"></span> &middot; STOPS AUTOMATICALLY AT 10:00</div>
+
+          <div class="oe-submit-row left">
+            <button class="oe-btn-ghost" @click="requestCancel()">Cancel</button>
+          </div>
+          <div class="oe-while-you-wait" x-show="carouselEnabled" x-cloak>
+            <div class="oe-eyebrow">WHILE YOU WAIT</div>
+            <h3 class="oe-carousel-title" x-text="currentArticle.title"></h3>
+            <p class="oe-carousel-author" x-text="currentArticle.author"></p>
+            <p class="oe-carousel-abstract" x-text="currentArticle.abstract"></p>
+            <div class="oe-carousel-actions">
+              <a class="oe-carousel-link" :href="currentArticle.url" target="_blank" rel="noopener">Read article</a>
+              <button class="oe-carousel-next" type="button" @click="nextJutlpArticle()">Next article</button>
+            </div> 
+          </div>
+          <!--Cancel processing guard-->
+          <div class="oe-modal-overlay" x-show="showCancelConfirm" x-cloak>
+            <div class="oe-modal">
+              <div class="oe-eyebrow">CANCEL PROCESSING</div>
+              <h2 class="oe-headline">Stop working on your manuscript?</h2>
+              <p class="oe-lede">Processing will stop and your upload will be deleted. You will need to upload your file again to start over.</p>
+              <div class="oe-modal-actions">
+                <button class="oe-btn-primary" @click="keepProcessing()">Keep Processing</button>
+                <button class="oe-btn-ghost" @click="confirmCancel()">Cancel and Start Over</button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-      
-      <!-- Cancelled -->
-      <div x-show="currentPhase === 'cancelled'" x-cloak>
-        <div class="oe-error-bar"></div>
-        <div class="oe-eyebrow">PROCESSING CANCELLED</div>
-        <h2 class="oe-headline">You cancelled this job</h2>
-        <p class="oe-lede">Your upload has been deleted. Nothing was saved. You can upload your file again whenever you are ready.</p>
-        <div class="oe-submit-row left">
-          <button class="oe-btn-primary" @click="resetToUpload()">Upload a File</button>
+        
+        <!-- Cancelled -->
+        <div x-show="currentPhase === 'cancelled'" x-cloak>
+          <div class="oe-error-bar"></div>
+          <div class="oe-eyebrow">PROCESSING CANCELLED</div>
+          <h2 class="oe-headline">You cancelled this job</h2>
+          <p class="oe-lede">Your upload has been deleted. Nothing was saved. You can upload your file again whenever you are ready.</p>
+          <div class="oe-submit-row left">
+            <button class="oe-btn-primary" @click="resetToUpload()">Upload a File</button>
+          </div>
         </div>
-      </div>
 
-      <!-- Timeout -->
-      <div x-show="currentPhase === 'timeout'" x-cloak>
-        <div class="oe-error-bar"></div>
-        <div class="oe-eyebrow">PROCESSING STOPPED</div>
-        <h2 class="oe-headline">This took longer than ten minutes</h2>
-        <p class="oe-lede">Unable to finish processing your manuscript. Please try again. Your upload has been deleted. Complex documents with many tables or embedded objects are the usual cause.</p>
-        <div class="oe-submit-row left">
-          <button class="oe-btn-primary" @click="retryProcessing()">Try Again</button>
-          <button class="oe-btn-ghost" @click="resetToUpload()" style="margin-left: 16px;">Upload a Different File</button>
+        <!-- Timeout -->
+        <div x-show="currentPhase === 'timeout'" x-cloak>
+          <div class="oe-error-bar"></div>
+          <div class="oe-eyebrow">PROCESSING STOPPED</div>
+          <h2 class="oe-headline">This took longer than ten minutes</h2>
+          <p class="oe-lede">Unable to finish processing your manuscript. Please try again. Your upload has been deleted. Complex documents with many tables or embedded objects are the usual cause.</p>
+          <div class="oe-submit-row left">
+            <button class="oe-btn-primary" @click="retryProcessing()">Try Again</button>
+            <button class="oe-btn-ghost" @click="resetToUpload()" style="margin-left: 16px;">Upload a Different File</button>
+          </div>
+          <p class="oe-lede" style="margin-top: 32px; font-style: italic; color: var(--ink3);">If this keeps happening, contact OAPA and we will look at the document directly.</p>
         </div>
-        <p class="oe-lede" style="margin-top: 32px; font-style: italic; color: var(--ink3);">If this keeps happening, contact OAPA and we will look at the document directly.</p>
-      </div>
 
-      <!-- ======================== 3.RESULTS ======================== -->
-      <div x-show="currentPhase === 'results'" x-cloak>
-        <template x-if="!isCleanResult">
-          <div>
-            <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
-            <h2 class="oe-headline">Your manuscript has been reviewed</h2>
-            <p class="oe-lede">
-              <span x-text="changesMadeTotal"></span> corrections were applied to your document.
-              <span x-text="manualReviewTotal"></span> items need a decision from you before you submit.
-            </p>
+        <!-- ======================== 3.RESULTS ======================== -->
+        <div x-show="currentPhase === 'results' && !showReferences" x-cloak>
+          <template x-if="!isCleanResult">
+            <div>
+              <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
+              <h2 class="oe-headline">Your manuscript has been reviewed</h2>
+              <p class="oe-lede">
+                <span x-text="changesMadeTotal"></span> corrections were applied to your document.
+                <span x-text="manualReviewTotal"></span> items need a decision from you before you submit.
+              </p>
 
-            <div class="oe-section">
-              <div class="oe-section-label">NEEDS MANUAL REVIEW &middot; <span x-text="manualReviewTotal"></span></div>
-              <template x-for="group in manualReviewGroups" :key="group.label">
-                <div class="oe-result">
-                  <div class="oe-result-head oe-result-toggle" @click="toggleGroup(group.label)">
-                    <span class="oe-result-title" x-text="group.label"></span>
-                    <span class="oe-result-tag">
-                      <span x-text="group.count"></span>
-                      <span class="oe-chevron" x-text="openGroups[group.label] ? '▾' : '▸'"></span>
-                    </span>
+              <div class="oe-section">
+                <div class="oe-section-label">NEEDS MANUAL REVIEW &middot; <span x-text="manualReviewTotal"></span></div>
+                <template x-for="group in manualReviewGroups" :key="group.label">
+                  <div class="oe-result">
+                    <div class="oe-result-head oe-result-toggle" @click="toggleGroup(group.label)">
+                      <span class="oe-result-title" x-text="group.label"></span>
+                      <span class="oe-result-tag">
+                        <span x-text="group.count"></span>
+                        <span class="oe-chevron" x-text="openGroups[group.label] ? '▾' : '▸'"></span>
+                      </span>
+                    </div>
+                    <div class="oe-result-body" x-show="openGroups[group.label]">
+                      <template x-for="item in group.items" :key="item.rule_id">
+                        <p class="oe-result-desc" x-text="item.message"></p>
+                      </template>
+                      <button
+                      type="button"
+                      class="oe-result-link"
+                      x-show="group.label === 'References and citations'"
+                      @click="viewReferences()"
+                    >View references ›</button>
+                    </div>
                   </div>
-                  <div class="oe-result-body" x-show="openGroups[group.label]">
-                    <template x-for="item in group.items" :key="item.rule_id">
-                      <p class="oe-result-desc" x-text="item.message"></p>
-                    </template>
+                </template>
+              </div>
+
+              <div class="oe-section">
+                <div class="oe-section-label">CHANGES MADE &middot; <span x-text="changesMadeTotal"></span></div>
+                <template x-for="group in changesMadeGroups" :key="group.key">
+                  <div class="oe-result">
+                    <div class="oe-result-head">
+                      <span class="oe-result-title" x-text="group.label"></span>
+                      <span class="oe-result-tag" x-text="group.count + ' CHANGES'"></span>
+                    </div>
+                    <p class="oe-result-desc" x-text="group.description" x-show="group.description"></p>
+                    <button
+                      type="button"
+                      class="oe-result-link"
+                      x-show="group.key === 'references'"
+                      @click="viewReferences()"
+                    >View references ›</button>
                   </div>
-                </div>
-              </template>
+                </template>
+              </div>
+              <div class="oe-about-box">
+                <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+                <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
+              </div>
+
+              <div class="oe-submit-row left">
+                <button class="oe-btn-primary" @click="goToDownload()">Continue to download</button>
+              </div>
             </div>
+          </template>
 
-            <div class="oe-section">
-              <div class="oe-section-label">CHANGES MADE &middot; <span x-text="changesMadeTotal"></span></div>
-              <template x-for="group in changesMadeGroups" :key="group.key">
+          <!--Results page for clean doc-->
+          <template x-if="isCleanResult">
+            <div>
+              <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
+              <h2 class="oe-headline">No issues found</h2>
+              <p class="oe-lede">
+                We checked your document and found nothing to correct. This is not an empty result:
+                we read <span x-text="wordCount"></span> words and checked <span x-text="referenceCount"></span> references.
+              </p>
+
+              <div class="oe-section">
+                <div class="oe-section-label">WHAT WE CHECKED</div>
                 <div class="oe-result">
                   <div class="oe-result-head">
-                    <span class="oe-result-title" x-text="group.label"></span>
-                    <span class="oe-result-tag" x-text="group.count + ' CHANGES'"></span>
+                    <span class="oe-result-title">References and citations</span>
+                    <span class="oe-result-tag">PASSED</span>
                   </div>
-                  <p class="oe-result-desc" x-text="group.description" x-show="group.description"></p>
-                  <button type="button" class="oe-result-link" x-show="group.linkLabel" x-text="group.linkLabel + ' ›'"></button>
+                  <p class="oe-result-desc">All <span x-text="referenceCount"></span> references were confirmed in Crossref and every in-text citation matched your list.</p>
                 </div>
-              </template>
-            </div>
+                <div class="oe-result">
+                  <div class="oe-result-head">
+                    <span class="oe-result-title">Structure and front page</span>
+                    <span class="oe-result-tag">PASSED</span>
+                  </div>
+                  <p class="oe-result-desc">Headings, spacing, margins, title page and running head already follow APA 7.</p>
+                </div>
+                <div class="oe-result">
+                  <div class="oe-result-head">
+                    <span class="oe-result-title">Spelling and grammar</span>
+                    <span class="oe-result-tag">PASSED</span>
+                  </div>
+                  <p class="oe-result-desc">No spelling, Australian English or acronym issues were found.</p>
+                </div>
+              </div>
 
-            <div class="oe-about-box">
-              <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
-              <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
-            </div>
+              <div class="oe-about-box">
+                <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+                <p>Your document had nothing to correct, so this copy is identical to the file you uploaded. There are no tracked changes or comments to review.</p>
+              </div>
 
-            <div class="oe-submit-row left">
-              <button class="oe-btn-primary" @click="goToDownload()">Continue to download</button>
+              <div class="oe-submit-row left">
+                <button class="oe-btn-primary" @click="goToDownload()">Download reviewed document</button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- ======================== 3b.REFERENCES ======================== -->
+        <div x-show="currentPhase === 'results' && showReferences" x-cloak>
+          <button class="oe-link" @click="backToResults()">&larr; Back to results</button>
+          <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW &middot; REFERENCES</div>
+          <h2 class="oe-headline">Your references</h2>
+          <p class="oe-lede">
+            <span x-text="attentionCount"></span> of <span x-text="totalReferences"></span> references need your attention.
+            The other <span x-text="verifiedReferences.length"></span> were confirmed in Crossref.
+          </p>
+
+          <div class="oe-ref-summary">
+            <div class="oe-ref-summary-box">
+              <div class="oe-ref-summary-num" x-text="notFoundReferences.length"></div>
+              <div class="oe-ref-summary-label">NOT FOUND</div>
+            </div>
+            <div class="oe-ref-summary-box">
+              <div class="oe-ref-summary-num" x-text="doiMismatchReferences.length"></div>
+              <div class="oe-ref-summary-label">DOI MISMATCH</div>
+            </div>
+            <div class="oe-ref-summary-box">
+              <div class="oe-ref-summary-num" x-text="verifiedReferences.length"></div>
+              <div class="oe-ref-summary-label">VERIFIED</div>
             </div>
           </div>
-        </template>
 
-        <!--Results page for clean doc-->
-        <template x-if="isCleanResult">
-          <div>
-            <div class="oe-eyebrow">STEP 3 OF 4 &middot; REVIEW</div>
-            <h2 class="oe-headline">No issues found</h2>
-            <p class="oe-lede">
-              We checked your document and found nothing to correct. This is not an empty result:
-              we read <span x-text="wordCount"></span> words and checked <span x-text="referenceCount"></span> references.
+          <div class="oe-section">
+            <div class="oe-section-label">NOT FOUND &middot; <span x-text="notFoundReferences.length"></span></div>
+            <p class="oe-ref-intro">Crossref could not confirm these. They may still be correct: books, reports and theses are often not in Crossref.</p>
+            <template x-for="ref in notFoundReferences" :key="ref.raw_text">
+              <div class="oe-result">
+                <span class="oe-ref-tag">NOT FOUND</span>
+                <p class="oe-ref-text" x-text="ref.raw_text"></p>
+                <p class="oe-ref-desc" x-text="notFoundExplanation(ref.kind)"></p>
+                <p class="oe-ref-doi">No DOI found for this reference.</p>
+                <a class="oe-ref-link" :href="scholarUrl(ref.raw_text)" target="_blank" rel="noopener">Search Google Scholar</a>
+              </div>
+            </template>
+          </div>
+
+          <div class="oe-section">
+            <div class="oe-section-label">DOI MISMATCH &middot; <span x-text="doiMismatchReferences.length"></span></div>
+            <p class="oe-ref-intro">The DOI given does not match the reference. We have not linked these DOIs so you do not open the wrong work.</p>
+            <template x-for="ref in doiMismatchReferences" :key="ref.raw_text">
+              <div class="oe-result">
+                <span class="oe-ref-tag">DOI MISMATCH</span>
+                <p class="oe-ref-text" x-text="ref.raw_text"></p>
+                <p class="oe-ref-desc">The DOI given points to a different work. Check it against the original source.</p>
+                <p class="oe-ref-doi">DOI given: <span x-text="ref.doi"></span> (not linked)</p>
+                <a class="oe-ref-link" :href="scholarUrl(ref.raw_text)" target="_blank" rel="noopener">Search Google Scholar</a>
+              </div>
+            </template>
+          </div>
+
+          <div class="oe-section">
+            <div class="oe-section-label">VERIFIED &middot; <span x-text="verifiedReferences.length"></span></div>
+            <p class="oe-ref-intro">
+              Matched in Crossref. Nothing to do here.
+              <a class="oe-ref-link" @click="toggleVerified()" x-text="showVerified ? 'Hide all ▴' : 'Show all ' + verifiedReferences.length + ' ▾'"></a>
             </p>
-
-            <div class="oe-section">
-              <div class="oe-section-label">WHAT WE CHECKED</div>
-              <div class="oe-result">
-                <div class="oe-result-head">
-                  <span class="oe-result-title">References and citations</span>
-                  <span class="oe-result-tag">PASSED</span>
-                </div>
-                <p class="oe-result-desc">All <span x-text="referenceCount"></span> references were confirmed in Crossref and every in-text citation matched your list.</p>
+            <template x-if="showVerified">
+              <div>
+                <template x-for="ref in verifiedReferences" :key="ref.raw_text">
+                  <div class="oe-result">
+                    <span class="oe-ref-tag">VERIFIED</span>
+                    <p class="oe-ref-text" x-text="ref.raw_text"></p>
+                    <template x-if="ref.doi">
+                      <a class="oe-ref-link" :href="'https://doi.org/' + ref.doi" target="_blank" rel="noopener" x-text="'https://doi.org/' + ref.doi"></a>
+                    </template>
+                  </div>
+                </template>
               </div>
-              <div class="oe-result">
-                <div class="oe-result-head">
-                  <span class="oe-result-title">Structure and front page</span>
-                  <span class="oe-result-tag">PASSED</span>
-                </div>
-                <p class="oe-result-desc">Headings, spacing, margins, title page and running head already follow APA 7.</p>
-              </div>
-              <div class="oe-result">
-                <div class="oe-result-head">
-                  <span class="oe-result-title">Spelling and grammar</span>
-                  <span class="oe-result-tag">PASSED</span>
-                </div>
-                <p class="oe-result-desc">No spelling, Australian English or acronym issues were found.</p>
-              </div>
-            </div>
-
-            <div class="oe-about-box">
-              <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
-              <p>Your document had nothing to correct, so this copy is identical to the file you uploaded. There are no tracked changes or comments to review.</p>
-            </div>
-
-            <div class="oe-submit-row left">
-              <button class="oe-btn-primary" @click="goToDownload()">Download reviewed document</button>
-            </div>
+            </template>
           </div>
-        </template>
-      </div>
 
-      <!-- ======================== 4.DOWNLOAD ======================== -->
-      <div x-show="currentPhase === 'download'" x-cloak>
-        <div class="oe-eyebrow">STEP 4 OF 4 &middot; DOWNLOAD</div>
-        <h2 class="oe-headline">Your document is ready</h2>
-        <div class="oe-file-meta" x-text="downloadFileLabel"></div>
-
-        <div class="oe-about-box">
-          <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
-          <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
+          <p class="oe-ref-footer">Fix references in your Word file, not here. This list is for checking only.</p>
         </div>
+        <!-- ======================== 4.DOWNLOAD ======================== -->
+        <div x-show="currentPhase === 'download'" x-cloak>
+          <div class="oe-eyebrow">STEP 4 OF 4 &middot; DOWNLOAD</div>
+          <h2 class="oe-headline">Your document is ready</h2>
+          <div class="oe-file-meta" x-text="downloadFileLabel"></div>
 
-        <div class="oe-submit-row left">
-          <button class="oe-btn-primary" @click="downloadManuscript()">Download reviewed document</button>
-        </div>
-        <p class="oe-helper">Keeps every change as a tracked change with a margin comment. Review them in Word.</p>
+          <div class="oe-about-box">
+            <div class="oe-eyebrow">ABOUT YOUR DOWNLOAD</div>
+            <p>Your Word file keeps every change as a tracked change, with a margin comment explaining it, so nothing is changed behind your back. Open it in Word, then use Review › Accept or Reject to decide what to keep.</p>
+          </div>
 
-        <div class="oe-submit-row left">
-          <button type="button" class="oe-btn-secondary" @click="requestCleanCopy()">
-            Download with all changes accepted
-            <span class="oe-tag-soon">Coming soon</span>
-          </button>
-        </div>
-        <p class="oe-clean-copy-note" role="status" x-show="showCleanCopyNote" x-cloak>
-          This option isn't available yet. For now, download the reviewed document
-          and use Review › Accept All Changes in Word.
-        </p>
-        <p class="oe-helper">Applies every OpenEditor change for you. You won't be able to accept or reject them one by one.</p>
-        <button class="oe-link" @click="requestProcessAnother()">Process another document</button>
+          <div class="oe-submit-row left">
+            <button class="oe-btn-primary" @click="downloadManuscript()">Download reviewed document</button>
+          </div>
+          <p class="oe-helper">Keeps every change as a tracked change with a margin comment. Review them in Word.</p>
 
-        <!--Process another document guard-->
-        <div class="oe-modal-overlay" x-show="showLeaveConfirm" x-cloak>
-          <div class="oe-modal">
-            <div class="oe-eyebrow">DOWNLOAD WARNING</div>
-            <h2 class="oe-headline">Have you downloaded your document?</h2>
-            <p class="oe-lede">Your processed file will not be saved when you leave this page.</p>
-            <div class="oe-modal-actions">
-              <button class="oe-btn-primary" @click="downloadFirst()">Download first</button>
-              <button class="oe-btn-ghost" @click="continueWithoutDownloading()">Continue without downloading</button>
+          <div class="oe-submit-row left">
+            <button type="button" class="oe-btn-secondary" @click="requestCleanCopy()">
+              Download with all changes accepted
+              <span class="oe-tag-soon">Coming soon</span>
+            </button>
+          </div>
+          <p class="oe-clean-copy-note" role="status" x-show="showCleanCopyNote" x-cloak>
+            This option isn't available yet. For now, download the reviewed document
+            and use Review › Accept All Changes in Word.
+          </p>
+          <p class="oe-helper">Applies every OpenEditor change for you. You won't be able to accept or reject them one by one.</p>
+          <button class="oe-link" @click="requestProcessAnother()">Process another document</button>
+
+          <!--Process another document guard-->
+          <div class="oe-modal-overlay" x-show="showLeaveConfirm" x-cloak>
+            <div class="oe-modal">
+              <div class="oe-eyebrow">DOWNLOAD WARNING</div>
+              <h2 class="oe-headline">Have you downloaded your document?</h2>
+              <p class="oe-lede">Your processed file will not be saved when you leave this page.</p>
+              <div class="oe-modal-actions">
+                <button class="oe-btn-primary" @click="downloadFirst()">Download first</button>
+                <button class="oe-btn-ghost" @click="continueWithoutDownloading()">Continue without downloading</button>
+              </div>
             </div>
           </div>
         </div>

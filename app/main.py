@@ -1264,6 +1264,7 @@ def results(session_id):
         "changes_made":         session.get("changes_made", {"total": 0, "groups": []}),
         "word_count":           session.get("word_count", 0),
         "reference_count":      len(session.get("ref_check", {}).get("references", [])),
+        "references":           session.get("ref_check", {}).get("references", []),
     })
 
 

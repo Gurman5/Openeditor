@@ -58,26 +58,41 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
 /* Reproduces the Figma canvas at literal 1440x900 so spacing/positions
    can be checked directly against the design file. */
 .oe-frame-wrapper {
+  position: relative;
   width: 100vw;
   height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .oe-frame {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 1440px;
-  min-height: 900px;
-  margin: auto;
+  height: 900px;      
   background: var(--white);
   padding: 80px 120px 60px;
   box-sizing: border-box;
-  transform: scale(var(--oe-scale, 1));
+  transform: translate(-50%, -50%) scale(var(--oe-scale, 1));
   transform-origin: center center;
 }
- 
+.oe-frame-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;                       
+  scrollbar-width: thin;                    
+  scrollbar-color: #c8c4bb transparent;    
+}
+.oe-frame-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.oe-frame-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.oe-frame-scroll::-webkit-scrollbar-thumb {
+  background: #c8c4bb;
+  border-radius: 3px;
+}
 /* Progress indicator: y80, full content width, 4 segments */
 .oe-progress { display: flex; gap: 8px; margin-bottom: 56px; }
 .oe-progress-seg { flex: 1; height: 3px; background: var(--oe-pending); }
@@ -174,7 +189,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
   color: var(--ink3);
 }
  
-.oe-submit-row { margin-top: 32px; text-align: right; width: 1200px; }
+.oe-submit-row { margin-top: 32px; text-align: right; width: 1200px; margin-bottom: 40px; }
 .oe-submit-row.left { text-align: left; }
  
 /* OAPA signature block: fixed at (1100,726), 220x54 — uses the real
@@ -182,7 +197,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
 .oe-signature {
   position: absolute;
   left: 1100px;
-  bottom: 120px;
+  bottom: 20px;
   width: 220px;
   height: 54px;
   display: flex;
@@ -574,3 +589,92 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; }
 .oe-chevron { font-size: 12px; color: var(--ink3); }
 .oe-result-body { margin-top: 8px; }
 .oe-result-link:hover { text-decoration: underline; }
+/* ─── References detail view ─── */
+.oe-link + .oe-eyebrow { margin-top: 24px; }
+
+/* Summary strip: three joined boxes */
+.oe-ref-summary {
+  display: flex;
+  max-width: 800px;
+  margin: 0 0 40px;
+}
+.oe-ref-summary-box {
+  flex: 1;
+  border: 1px solid var(--border2);
+  padding: 16px 20px;
+}
+.oe-ref-summary-box + .oe-ref-summary-box { margin-left: -1px; } /* avoids doubled borders */
+.oe-ref-summary-num {
+  font-family: var(--serif);
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.oe-ref-summary-label {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink3);
+  margin-top: 8px;
+}
+
+/* Section intro line */
+.oe-ref-intro {
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink3);
+  margin: 0 0 8px;
+}
+
+/* One reference entry (sits inside .oe-result) */
+.oe-ref-tag {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  padding: 2px 6px;
+  margin-bottom: 8px;
+}
+.oe-ref-text {
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.oe-ref-desc,
+.oe-ref-doi {
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink3);
+  margin-top: 4px;
+}
+
+/* Link-style text: works on <a> and <button> */
+.oe-ref-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.oe-result .oe-ref-link { display: inline-block; margin-top: 8px; }
+.oe-ref-intro .oe-ref-link { margin-left: 8px; }
+
+.oe-ref-footer {
+  max-width: 800px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink3);
+  margin-top: 8px;
+}

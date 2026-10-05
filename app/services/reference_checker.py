@@ -18,7 +18,7 @@ from app.services.document_analysis_services import extract_main_sections, load_
 from app.services.reference_reconstructor import (
     references_are_equivalent,
 )
-from app.services.reference_type_checker import check_reference_type_style
+from app.services.reference_type_checker import check_reference_type_style, classify_reference
 
 log = logging.getLogger(__name__)
 # ── Disk cache for CrossRef API responses ────────────────────────────────────
@@ -821,6 +821,13 @@ def _build_structured_reference(entry_num: int, ref: str, cref_result: dict) -> 
     else:
         mapped_status = "not_found"
 
+    raw_kind = classify_reference(ref)
+    if raw_kind == "thesis":
+        kind = "thesis"
+    elif raw_kind == "journal":
+        kind = "article"
+    else:
+        kind = "report"
     return {
         "raw_text": ref,
         "authors": authors or None,
@@ -829,6 +836,7 @@ def _build_structured_reference(entry_num: int, ref: str, cref_result: dict) -> 
         "doi": doi,
         "source_url": cref_result.get("doi_url") or (f"https://doi.org/{doi}" if doi else None),
         "status": mapped_status,
+        "kind" : kind,
     }
 
 
