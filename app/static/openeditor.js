@@ -73,6 +73,12 @@ document.addEventListener('alpine:init', () => {
     },
     viewReferences() { this.showReferences = true; },
     backToResults() { this.showReferences = false; },
+    toggleVerified() { this.showVerified = !this.showVerified; },
+    notFoundExplanation(kind) {
+      if (kind === 'thesis') return 'Theses are often not in Crossref. Check it against the original.';
+      if (kind === 'report') return 'Reports and grey literature are often not in Crossref. Check it against the original.';
+      return 'We could not confirm this reference in Crossref. Check the author, year and title.';
+    },
 
     get manualReviewTotal() {
       return this.manualReviewItems.length;
