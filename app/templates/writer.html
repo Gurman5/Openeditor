@@ -284,7 +284,6 @@
                 <p class="oe-ref-text" x-text="ref.raw_text"></p>
                 <p class="oe-ref-desc" x-text="notFoundExplanation(ref.kind)"></p>
                 <p class="oe-ref-doi">No DOI found for this reference.</p>
-                <a class="oe-ref-link" :href="scholarUrl(ref.raw_text)" target="_blank" rel="noopener">Search Google Scholar</a>
               </div>
             </template>
           </div>
@@ -298,7 +297,6 @@
                 <p class="oe-ref-text" x-text="ref.raw_text"></p>
                 <p class="oe-ref-desc">The DOI given points to a different work. Check it against the original source.</p>
                 <p class="oe-ref-doi">DOI given: <span x-text="ref.doi"></span> (not linked)</p>
-                <a class="oe-ref-link" :href="scholarUrl(ref.raw_text)" target="_blank" rel="noopener">Search Google Scholar</a>
               </div>
             </template>
           </div>
