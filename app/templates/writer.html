@@ -129,8 +129,9 @@
         <div x-show="currentPhase === 'timeout'" x-cloak>
           <div class="oe-error-bar"></div>
           <div class="oe-eyebrow">PROCESSING STOPPED</div>
-          <h2 class="oe-headline">This took longer than ten minutes</h2>
+          <h2 class="oe-headline" x-text="processingError ? 'Processing failed' : 'This took longer than ten minutes'"></h2>
           <p class="oe-lede">Unable to finish processing your manuscript. Please try again. Your upload has been deleted. Complex documents with many tables or embedded objects are the usual cause.</p>
+          <p class="oe-lede" x-show="processingError" x-text="'Details: ' + processingError" style="margin-top: 12px; font-family: monospace; font-size: 13px; color: var(--ink3);"></p>
           <div class="oe-submit-row left">
             <button class="oe-btn-primary" @click="retryProcessing()">Try Again</button>
             <button class="oe-btn-ghost" @click="resetToUpload()" style="margin-left: 16px;">Upload a Different File</button>

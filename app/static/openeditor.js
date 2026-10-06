@@ -8,6 +8,7 @@ document.addEventListener('alpine:init', () => {
     fileError: null,
     sessionId: null,
     uploadError: null,
+    processingError: null,
 
     processingPercent: 0,
     elapsedSeconds: 0,
@@ -212,6 +213,7 @@ document.addEventListener('alpine:init', () => {
       this.processingPercent = 0;
       this.elapsedSeconds = 0;
       this.uploadError = null;
+      this.processingError = null;
 
       this.elapsedTimer = setInterval(() => {
         this.elapsedSeconds++;
@@ -251,9 +253,11 @@ document.addEventListener('alpine:init', () => {
           if (err.errorCode === 'CANCELLED') {
             this.currentPhase = 'cancelled';
           } else if (err.errorCode === 'TIMEOUT') {
+            this.processingError = null;
             this.currentPhase = 'timeout';
           } else {
             console.error('Processing failed:', err);
+            this.processingError = `${err.errorCode || 'ERROR'}: ${err.message || 'Unknown error'}`;
             this.currentPhase = 'timeout';
           }
         });
