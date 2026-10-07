@@ -48,11 +48,12 @@ from app.services.table_n_notation_comments import apply_table_n_notation_commen
 from app.services.table_page_breaks import apply_table_page_breaks
 from app.services.table_section_boundary_comments import apply_table_section_boundary_comments
 
+from app.domain.reporting_ownership import SAM_FIXED_RULE_IDS
+
 log = logging.getLogger(__name__)
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WQ = f"{{{W}}}"
-
 
 def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower())
@@ -682,9 +683,9 @@ def doc_analysis_pipeline(
     # invisible to the editor.
     stage_errors: list[dict] = []
 
-    def _record_stage_error(stage_label: str, exc: Exception) -> None:
-        log.warning("%s failed: %s", stage_label, exc)
-        stage_errors.append({"stage": stage_label, "error": str(exc)})
+    def _record_stage_error(stage_label: str, exc: Exception, severity: str = "minor") -> None:
+        log.warning("%s failed (%s): %s", stage_label, severity, exc)
+        stage_errors.append({"stage": stage_label, "error": str(exc), "severity": severity})
 
     # ── Phase 0: Normalise author formatting noise on a working copy ─────────
     # Strips author-supplied tracked changes, run-level colour and highlighting,
@@ -710,38 +711,44 @@ def doc_analysis_pipeline(
             f_ref       = executor.submit(check_and_report, docx_path)
 
             deterministic_check_results = f_validate.result()
-            _progress(30, "refs")
+            _progress(30, "structure")
             ref_check_result            = f_ref.result()
             _progress(42, "refs")
 
         # ── Phase 2: LLM editorial review (needs validate + ref results) ─────────
         _progress(48, "llm")
-        llm_result = run_editorial_review(
-            docx_path,
-            deterministic_check_result=deterministic_check_results,
-            ref_check_result=ref_check_result,
-        )
-        _progress(68, "building")
+        try:
+            llm_result = run_editorial_review(
+                docx_path,
+                deterministic_check_result=deterministic_check_results,
+                ref_check_result=ref_check_result,
+            )
+        except Exception as exc:
+            _record_stage_error("Editorial review (AI)", exc, severity="critical")
+            llm_result = None
+            _progress(68, "building")
 
         # ── Phase 3: Sequential document assembly ────────────────────────────────
-        # Sam handles all front-page items (FP*) via tracked changes — skip them here
-        # so the same issue doesn't appear as both a comment and a tracked change.
-        _SAM_COVERED = {"FP"}
         filtered_report = {
             **deterministic_check_results,
             "results": [
                 r for r in deterministic_check_results["results"]
-                if not any(r["rule_id"].startswith(p) for p in _SAM_COVERED)
+                if r["rule_id"] not in SAM_FIXED_RULE_IDS
             ],
         }
 
-        generate_commented_docx(
-            input_path=docx_path,
-            output_path=resolved_output_path,
-            report=filtered_report,
-            ref_results=ref_check_result["results"],
-            llm_results=llm_result,
-        )
+        try:
+            generate_commented_docx(
+                input_path=docx_path,
+                output_path=resolved_output_path,
+                report=filtered_report,
+                ref_results=ref_check_result["results"],
+                llm_results=llm_result,
+            )
+        except Exception as exc:
+            _record_stage_error("Document generation", exc, severity="critical")
+            raise  # no document means no output at all
+        
         _progress(78, "building")
 
         # If normalisation actually changed anything, leave a single summary

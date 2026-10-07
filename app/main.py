@@ -1,3 +1,4 @@
+from cmath import log
 import hmac
 import os
 import re
@@ -7,9 +8,10 @@ import tempfile
 import threading
 import time
 import uuid
+import zipfile
+from app.services.session_manager import prune_expired_sessions
 from datetime import timedelta
 from urllib.parse import urljoin, urlparse
-
 from flasgger import Swagger
 from flask import (
     Flask,
@@ -20,6 +22,7 @@ from flask import (
     send_file,
     session,
     url_for,
+    after_this_request
 )
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -27,6 +30,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.pipelines.feedback_gen_pipeline import doc_analysis_pipeline
+from app.domain.reporting_ownership import is_sam_fixed
 from app.services.access_validation import check_access
 from app.services.acronym_store import (
     add_acronym,
@@ -50,18 +54,40 @@ from app.services.output_generation_samfix import (
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
+def start_session_sweeper():
+    def _sweep_loop():
+        while True:
+            time.sleep(300)  # 5 minutes
+            try:
+                pruned_count = prune_expired_sessions()
+                if pruned_count > 0:
+                    print(
+                        f"[Session Sweeper] Successfully pruned {pruned_count} expired session(s)."
+                    )
+            except Exception as e:
+                print(f"[Session Sweeper Error] Failed during pruning pass: {e}")
+
+    thread = threading.Thread(target=_sweep_loop, daemon=True)
+    thread.start()
+
+
+# Start background sweeper as soon as app is created
+start_session_sweeper()
+
 # Trust X-Forwarded-* headers from Railway's load balancer so request.remote_addr
 # reflects the real client IP (needed for accurate per-IP rate limiting).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Cap upload size to protect threads from being held by huge files.
 # Override via MAX_UPLOAD_MB env var if needed.
-_max_upload_mb = int(os.environ.get("MAX_UPLOAD_MB", "16"))
+_max_upload_mb = int(os.environ.get("MAX_UPLOAD_MB", "20"))
+app.config["MAX_UPLOAD_MB"] = _max_upload_mb
 app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 
 # Reject manuscripts whose whole-document word count exceeds this limit before
 # any pipeline work begins. Override via MAX_WORD_COUNT.
-_max_word_count = int(os.environ.get("MAX_WORD_COUNT", "10000"))
+_max_word_count = int(os.environ.get("MAX_WORD_COUNT", "15000"))
+app.config["MAX_WORD_COUNT"] = _max_word_count
 
 # Hard ceiling on how long the whole analysis may run. A document that hasn't
 # finished within this many seconds is abandoned and the session marked
@@ -249,6 +275,26 @@ swagger = Swagger(
 
 _sessions: dict = {}
 
+
+_file_ttl_seconds = int(os.environ.get("FILE_TTL_SECONDS", str(24 * 60 * 60)))  # 24h default
+
+def _sweep_expired_sessions():
+    while True:
+        time.sleep(300)  # Check every 5 minutes
+        now = time.time()
+        for sid, sess in list(_sessions.items()):
+            created = sess.get("created_at", now)
+            if now - created > _file_ttl_seconds:
+                tmp_dir = sess.get("tmp_dir")
+                if tmp_dir and os.path.isdir(tmp_dir):
+                    try:
+                        shutil.rmtree(tmp_dir, ignore_errors=False)
+                    except OSError as exc:
+                        log.warning("TTL sweep failed for %s: %s", sid, exc)
+                sess["status"] = "expired"
+                sess.pop("output_path", None)
+
+threading.Thread(target=_sweep_expired_sessions, daemon=True).start()
 
 class ProcessingCancelled(Exception):
     pass
@@ -442,7 +488,14 @@ def _sam_plan_to_issues(sam_result: dict | None) -> list[dict]:
 
 
 def _dedup_sam_issues(sam_issues: list[dict], existing_issues: list[dict]) -> list[dict]:
-    """Remove Sam's issues that duplicate existing ones (3+ significant word overlap)."""
+    """Remove Sam's issues that duplicate existing ones (3+ significant word overlap).
+
+    Division of labor with the exact rule-id filter (reporting_ownership.py):
+    the exact filter handles validator↔Sam double-reporting for shared rule ids
+    (FP/STY/SPE/TAB) before this runs, so those never reach here. This fuzzy
+    dedup covers only Sam-native notes (SAM_TITLE, SAM_AUTH, …) whose wording
+    may restate a validator or LLM finding under a different id.
+    """
     def _words(text: str) -> set[str]:
         return {w for w in re.sub(r"[^a-z0-9 ]", "", text.lower()).split() if len(w) > 3}
 
@@ -455,10 +508,71 @@ def _dedup_sam_issues(sam_issues: list[dict], existing_issues: list[dict]) -> li
             deduped.append(issue)
     return deduped
 
+def _build_changes_made(pipeline_result: dict) -> dict:
+    """Aggregate every tracked-change correction into the three 'changes made' groups.
+    only things that actually changedthe document count here. flag/comment-only
+    passes (short paragraphs, reference order) are excluded, those
+    belong in 'needs manual review', not in a 'changes made' count.
+    """
+
+    # ── References and citations ──────────────────────────────────────────
+    # run_font_actions spans reference text AND body; counted here because its
+    # primary target is reconstructed reference/DOI runs.
+    references = (
+        len(pipeline_result.get("ref_format_corrections") or [])
+        + len(pipeline_result.get("reference_indent_actions") or [])
+        + len(pipeline_result.get("run_font_actions") or [])
+    )
+
+    # ── Structure and front page ──────────────────────────────────────────
+    structure = (
+        _count_sam_changes(pipeline_result.get("sam_result"))
+        + len(pipeline_result.get("heading_corrections") or [])   
+        + len(pipeline_result.get("caption_apa7_actions") or [])
+        + len(pipeline_result.get("table_n_actions") or [])
+        + len(pipeline_result.get("table_section_boundary_actions") or [])
+        + len(pipeline_result.get("table_keep_together_actions") or [])
+        + len(pipeline_result.get("table_page_break_actions") or [])
+        + len(pipeline_result.get("appendix_actions") or [])
+    )
+
+    # ── Spelling and grammar ──────────────────────────────────────────────
+    language = (
+        len(pipeline_result.get("spelling_corrections") or [])
+        + len(pipeline_result.get("spell_check_corrections") or [])
+        + len(pipeline_result.get("acronym_actions") or [])
+        + len(pipeline_result.get("abbreviation_actions") or [])
+        + len(pipeline_result.get("number_word_corrections") or [])
+        + len(pipeline_result.get("decimal_actions") or [])
+        + len(pipeline_result.get("contingent_grammar_actions") or [])
+        + len(pipeline_result.get("coherence_actions") or [])
+    )
+
+    groups = [
+        {"key": "references", "label": "References and citations", "count": references},
+        {"key": "structure",  "label": "Structure and front page", "count": structure},
+        {"key": "language",   "label": "Spelling and grammar",     "count": language},
+    ]
+
+    return {
+        "total": sum(g["count"] for g in groups),
+        "groups": groups,
+    }
+
+
+def _count_sam_changes(sam_result: dict | None) -> int:
+    """Count Sam's tracked changes via the same plan→issue conversion the
+    results endpoint already uses. NOTE: _sam_plan_to_issues only converts a
+    subset of Sam's plan keys, so this slightly undercounts Sam's ~40 stages."""
+    return len(_sam_plan_to_issues(sam_result))
 
 @app.get("/")
 def openeditor():
-    return render_template("writer.html")
+    return render_template(
+        "writer.html",
+        max_upload_mb=_max_upload_mb,
+        max_word_count=_max_word_count,
+    )
 
 
 @app.get("/health")
@@ -479,11 +593,12 @@ def jutlp_articles_api():
         description: Article cards for the processing screen.
     """
     try:
-        limit = int(request.args.get("limit", "30"))
+        limit = int(request.args.get("limit", "10"))
     except (TypeError, ValueError):
         limit = 10
-    return jsonify({"articles": get_jutlp_articles(limit=limit)})
 
+    articles, is_degraded = get_jutlp_articles(limit=limit)
+    return jsonify({"articles": articles, "degraded": is_degraded})
 
 # ---------------------------------------------------------------------------
 # Acronym allow-list admin
@@ -603,57 +718,144 @@ def delete_acronym_api(key: str):
 @app.post("/api/upload")
 @limiter.limit(lambda: _upload_limit)
 def upload():
-    """
-    Upload a .docx manuscript for editorial analysis.
-    ---
-    tags:
-      - Analysis
-    consumes:
-      - multipart/form-data
-    parameters:
-      - in: formData
-        name: file
-        type: file
-        required: true
-        description: The .docx manuscript to analyse.
-    responses:
-      200:
-        description: Upload accepted, processing started.
-        schema:
-          type: object
-          properties:
-            session_id:
-              type: string
-              example: d83eff1c-1e94-4638-9c4c-801fa3875112
-      400:
-        description: Bad request (no file or wrong format).
-    """
+    """Upload a .docx manuscript for editorial analysis."""
     if "file" not in request.files:
-        return jsonify({"error_code": "EMPTY", "message": "No file uploaded", "session_id": None}), 400
+        return (
+            jsonify({
+                "error_code": "EMPTY",
+                "error": "No file uploaded",
+                "message": "No file uploaded",
+                "detail": "Please choose a .docx file to upload.",
+                "session_id": None,
+            }),
+            400,
+        )
 
     file = request.files["file"]
     if not file.filename or not file.filename.endswith(".docx"):
-        return jsonify({"error_code": "BAD_TYPE", "message": "Only .docx files are accepted", "session_id": None}), 400
+        return (
+            jsonify({
+                "error_code": "BAD_TYPE",
+                "error": "Only .docx files are accepted",
+                "message": "Only .docx files are accepted",
+                "detail": "Please upload a Microsoft Word document (.docx).",
+                "session_id": None,
+            }),
+            400,
+        )
 
     tmp_dir = tempfile.mkdtemp()
     input_path = os.path.join(tmp_dir, file.filename)
     file.save(input_path)
 
-    # Word-count gate: reject oversized manuscripts before spending any pipeline
-    # time on them. Best-effort — if the file can't be parsed here, let the
-    # pipeline surface the real error rather than blocking on the count.
+    # Get the file size in bytes
+    file_size = os.path.getsize(input_path)
+
+    # Server-side content validation
+    with open(input_path, "rb") as f:
+        header = f.read(4)
+
+    is_zip = header[:2] == b"PK"
+    is_ole = header[:4] == b"\xD0\xCF\x11\xE0"
+
+
+    # 1. Reject renamed non-docx files (Z-04 requirement)
+    if not is_zip and not is_ole:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "FAKE_DOCX",  # <-- Make sure this is FAKE_DOCX
+                "error": "This file could not be read.",
+                "message": "This file could not be read.",
+                "detail": "Please check that this is a valid Word document (.docx) and try again.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    # 2. Reject legacy .doc / password-protected OLE files
+    if is_ole:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "PASSWORD_LOCKED",
+                "error": "This file is password protected.",
+                "message": "This file is password protected.",
+                "detail": "Remove the password and upload it again.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    # 3. Z-04: Reject macro-bearing or embedded-object docx files (YOUR BLOCK HERE)
+    try:
+        with zipfile.ZipFile(input_path) as zf:
+            names = zf.namelist()
+            if "word/vbaProject.bin" in names or any(n.startswith("word/embeddings/") for n in names):
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return (
+                    jsonify({
+                        "error_code": "UNSUPPORTED_CONTENT",
+                        "error": "This file could not be processed.",
+                        "message": "This file could not be processed.",
+                        "detail": "The document contains content (macros or embedded objects) that cannot be processed.",
+                        "session_id": None,
+                    }),
+                    400,
+                )
+    except zipfile.BadZipFile:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "CORRUPT",
+                "error": "This file could not be read.",
+                "message": "This file could not be read.",
+                "detail": "Please check it opens in Word and try again.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    # 4. Check for empty files
+    if os.path.getsize(input_path) == 0:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "EMPTY_FILE",
+                "error": "This file is empty.",
+                "message": "This file is empty.",
+                "detail": "Please upload a manuscript with content.",
+                "session_id": None,
+            }),
+            400,
+        )
+
+    # Word-count gate
     try:
         total_words = _document_word_count(input_path)
     except Exception:
         total_words = None
+
     if total_words is not None and total_words > _max_word_count:
-        return jsonify({
-            "error_code": "OVER_WORD_LIMIT",
-                "message": f"Document is too long ({total_words:,} words). The maximum is {_max_word_count:,} words.",
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return (
+            jsonify({
+                "error_code": "OVER_WORD_LIMIT",
+                "error": (
+                    f"Document is too long ({total_words:,} words). The"
+                    f" maximum is {_max_word_count:,} words."
+                ),
+                "message": (
+                    f"Document is too long ({total_words:,} words). The"
+                    f" maximum is {_max_word_count:,} words."
+                ),
+                "detail": "Please shorten the manuscript and try again.",
                 "session_id": None,
                 "word_count": total_words,
                 "max_word_count": _max_word_count,
-            }), 400
+            }),
+            400,
+        )
 
     output_filename = build_output_filename(input_path, tmp_dir)
     output_path = os.path.join(tmp_dir, output_filename)
@@ -664,9 +866,12 @@ def upload():
         "progress": 0,
         "stage": "starting",
         "filename": file.filename,
+        "file_size": file_size,  
         "output_filename": output_filename,
         "cancel_requested": False,
         "tmp_dir": tmp_dir,
+        "created_at": time.time(),
+        "word_count": total_words,
     }
 
     def _run():
@@ -674,10 +879,9 @@ def upload():
 
         def _update_progress(pct, stage):
             session_state = _sessions.get(session_id, {})
-            if (
-                session_state.get("cancel_requested")
-                or session_state.get("status") in ("cancelled", "timeout")
-            ):
+            if session_state.get("cancel_requested") or session_state.get(
+                "status"
+            ) in ("cancelled", "timeout"):
                 raise ProcessingCancelled()
             if time.monotonic() - start > _analysis_timeout_seconds:
                 raise ProcessingTimeout()
@@ -691,7 +895,8 @@ def upload():
                 pct = current
             _sessions[session_id].update({
                 "progress": pct,
-                "stage": stage or _sessions[session_id].get("stage", "processing"),
+                "stage": stage
+                or _sessions[session_id].get("stage", "processing"),
             })
 
         outcome: dict = {}
@@ -707,69 +912,104 @@ def upload():
                 outcome["timeout"] = True
             except ProcessingCancelled:
                 outcome["cancelled"] = True
-            except Exception as exc:  # noqa: BLE001 — recorded and surfaced below
+            except Exception as exc:  # noqa: BLE001
                 outcome["error"] = exc
 
-        try:
-            _update_progress(5, "structure")
-        except (ProcessingCancelled, ProcessingTimeout):
-            return
+        _pipeline()
 
-        # Run the pipeline in its own thread and wait at most the timeout. The
-        # cooperative check in _update_progress stops the work at the next
-        # progress checkpoint; this join guarantees the user-facing session
-        # flips to a final state on time even if the pipeline stalls between
-        # checkpoints (e.g. inside a long network call).
-        worker = threading.Thread(target=_pipeline, daemon=True)
-        worker.start()
-        worker.join(_analysis_timeout_seconds)
-
-        if worker.is_alive() or outcome.get("timeout"):
+        if "timeout" in outcome:
             _sessions[session_id].update({
                 "status": "timeout",
-                "stage": "timeout",
-                # nudge a still-running worker to abort at its next checkpoint
-                "cancel_requested": True,
                 "error": _timeout_message,
             })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on timeout: %s", tmp_dir, exc)
             return
 
-        if outcome.get("cancelled") or _sessions[session_id].get("status") == "cancelled":
+        if "cancelled" in outcome:
             _sessions[session_id].update({
                 "status": "cancelled",
-                "stage": "cancelled",
-                "cancel_requested": True,
+                "error": "Processing cancelled",
             })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on cancel: %s", tmp_dir, exc)
             return
 
         if "error" in outcome:
-            _sessions[session_id].update({"status": "error", "error": str(outcome["error"])})
+            import logging
+
+            logging.exception(
+                "Pipeline failed for session %s",
+                session_id,
+                exc_info=outcome["error"],
+            )
+            _sessions[session_id].update({
+                "status": "error",
+                "error": (
+                    "Something went wrong while processing your document. Please"
+                    " try again."
+                ),
+            })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on error: %s", tmp_dir, exc)
             return
 
-        pipeline_result = outcome["result"]
-        if _sessions[session_id].get("cancel_requested"):
-            _sessions[session_id].update({"status": "cancelled", "stage": "cancelled"})
+
+        pipeline_result = outcome.get("result")
+        if pipeline_result is None:
+            _sessions[session_id].update({
+                "status": "error",
+                "error": "Processing completed with no result. Please try again.",
+            })
+            if tmp_dir and os.path.isdir(tmp_dir):
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=False)
+                except OSError as exc:
+                    log.warning("Could not clean up tmp_dir %s on empty result: %s", tmp_dir, exc)
             return
-        ref_check = pipeline_result["ref_check_result"]
+
+        ref_check = pipeline_result.get("ref_check_result", {})
 
         _sessions[session_id].update({
             "status":                  "done",
             "progress":                100,
-            "stage":                   "done",
-            "report":                  pipeline_result["deterministic_check_results"],
-            "ref_check":               ref_check,
-            "ref_results":             ref_check["results"],
-            "llm_result":              pipeline_result["llm_result"],
-            "sam_result":              pipeline_result.get("sam_result"),
-            "spelling_corrections":    pipeline_result.get("spelling_corrections", []),
-            "grammar_corrections":     pipeline_result.get("grammar_corrections", []),
-            "spell_check_corrections": pipeline_result.get("spell_check_corrections", []),
-            "stage_errors":            pipeline_result.get("stage_errors", []),
-            "output_path":             output_path,
+             "stage":                   "done",
+             "report":                  pipeline_result.get("deterministic_check_results"),
+             "ref_check":               ref_check,
+             "ref_results":             ref_check.get("results", []),
+             "llm_result":              pipeline_result.get("llm_result"),
+             "sam_result":              pipeline_result.get("sam_result"),
+              "spelling_corrections":    pipeline_result.get("spelling_corrections", []),
+              "grammar_corrections":     pipeline_result.get("contingent_grammar_actions", []),
+              "spell_check_corrections": pipeline_result.get("spell_check_corrections", []),
+              "stage_errors":            pipeline_result.get("stage_errors", []),
+              "output_path":             pipeline_result.get("output_path") or output_path,
         })
+        _sessions[session_id]["changes_made"] = _build_changes_made(pipeline_result)
 
+
+    # Start thread in background and return standard success response
     threading.Thread(target=_run, daemon=True).start()
-    return jsonify({"session_id": session_id})
+
+    return (
+        jsonify({
+            "session_id": session_id,
+            "filename": file.filename,
+            "file_size": file_size,  # <--- Send file size back to frontend
+            "status": "processing",
+            "message": "Upload accepted and processing started.",
+        }),
+        202,
+    )
 
 
 @app.post("/api/cancel/<session_id>")
@@ -854,7 +1094,10 @@ def results(session_id):
     report      = session["report"]
     ref_results = session["ref_results"]
     llm_result           = session.get("llm_result")
-    llm_error            = session.get("llm_error")
+    llm_error = next(
+    (e["error"] for e in session.get("stage_errors", []) if "Editorial review" in e.get("stage", "")),
+    None,
+)
     sam_result           = session.get("sam_result")
     spelling_corrections    = session.get("spelling_corrections", [])
     grammar_corrections     = session.get("grammar_corrections", [])
@@ -872,11 +1115,15 @@ def results(session_id):
                 fp_overrides[sv.rule_id] = sv.reason
 
     # ── Categories ───────────────────────────────────────────────────────────
+    # Sam-fixed rules are excluded everywhere here: Sam already repaired them
+    # as tracked changes, so counting them would double-report (see
+    # app/domain/reporting_ownership.py).
     def _det(statuses, *prefixes):
         return sum(
             1 for r in det_results
             if r["status"] in statuses
             and any(r["rule_id"].startswith(p) for p in prefixes)
+            and not is_sam_fixed(r["rule_id"])
             and r["rule_id"] not in fp_overrides  # don't count overridden FPs as fails
         )
 
@@ -906,6 +1153,12 @@ def results(session_id):
     issues = []
 
     for r in det_results:
+        if is_sam_fixed(r["rule_id"]):
+            # Sam already fixed this as a tracked change — it is counted in
+            # changes_made, not reported here. This exclusion wins over the
+            # LLM false-positive downgrade below: a fixed issue needs no
+            # false-positive note. (reporting_ownership.py)
+            continue
         if r["rule_id"] in fp_overrides:
             # LLM flagged as false positive — keep visible but downgrade to warn
             issues.append({
@@ -1008,6 +1261,10 @@ def results(session_id):
         "llm_available":        llm_result is not None,
         "llm_error":            llm_error,
         "stage_errors":         session.get("stage_errors", []),
+        "changes_made":         session.get("changes_made", {"total": 0, "groups": []}),
+        "word_count":           session.get("word_count", 0),
+        "reference_count":      len(session.get("ref_check", {}).get("references", [])),
+        "references":           session.get("ref_check", {}).get("references", []),
     })
 
 
@@ -1060,6 +1317,7 @@ def analyse_cli():
 
     session_id = str(uuid.uuid4())
     _sessions[session_id] = {
+        "status": "done",
         "output_path": output_path,
         "filename": file.filename,
         "output_filename": output_filename,
@@ -1096,12 +1354,50 @@ def download(session_id):
     """
     session = _sessions.get(session_id)
     if not session:
-        return jsonify({"error": "Session not found"}), 404
+        return jsonify({"error": "Session not found", "error_code": "NOT_FOUND"}), 404
 
+    if session.get("downloaded"):
+        return jsonify({
+            "error": "This file is no longer available.",
+            "error_code": "ALREADY_DOWNLOADED",
+        }), 410
+
+    if session.get("status") != "done":
+        return jsonify({
+            "error": "This document isn't ready to download yet.",
+            "error_code": "NOT_READY",
+            "status": session.get("status"),
+        }), 409
+
+    output_path = session.get("output_path")
+    tmp_dir = session.get("tmp_dir")
+
+    if not output_path or not os.path.isfile(output_path):
+        return jsonify({
+            "error": "No output file available for this session.",
+            "error_code": "FILE_MISSING",
+        }), 404
+
+
+    session["downloaded"] = True
+
+    @after_this_request
+    def cleanup_file(response):
+        if tmp_dir and os.path.isdir(tmp_dir):
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except OSError as exc:
+                log.warning("Could not clean up tmp_dir %s post-download: %s", tmp_dir, exc)
+        session["status"] = "expired"
+        session.pop("output_path", None)
+        return response
+
+    # Determine fallback filename if output_filename is not stored
     download_name = session.get("output_filename")
     if not download_name:
-        download_name = session["filename"].replace(".docx", "_reviewed.docx")
-
+        original_name = session.get("filename", "document.docx")
+        download_name = original_name.replace(".docx", "_reviewed.docx")
+        
     return send_file(
         session["output_path"],
         as_attachment=True,

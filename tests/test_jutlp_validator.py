@@ -135,7 +135,11 @@ class TestValidIdentified:
 
     def test_all_method_subsections_pass(self, report):
         rd = rules(report)
+        print("\n=== REPORT KEYS ===", list(report.keys()))
+        print("\n=== FULL REPORT ===", report)
+
         for rule_id in ["MET001", "MET002", "MET003", "MET004", "MET005"]:
+            assert rule_id in rd, f"Rule ID {rule_id} is missing from report rules"
             assert rd[rule_id] == "pass", f"{rule_id} should pass on valid doc"
 
     def test_all_discussion_subsections_pass(self, report):

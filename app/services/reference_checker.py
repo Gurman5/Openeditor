@@ -5,6 +5,7 @@ import re
 import time
 import unicodedata
 import zipfile
+import logging
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -17,8 +18,9 @@ from app.services.document_analysis_services import extract_main_sections, load_
 from app.services.reference_reconstructor import (
     references_are_equivalent,
 )
-from app.services.reference_type_checker import check_reference_type_style
+from app.services.reference_type_checker import check_reference_type_style, classify_reference
 
+log = logging.getLogger(__name__)
 # ── Disk cache for CrossRef API responses ────────────────────────────────────
 # Enabled by default; set CROSSREF_CACHE=0 to disable (e.g. in production).
 # Cache file lives next to this file so it's easy to find and delete.
@@ -438,17 +440,13 @@ def _references_window(paragraphs: list) -> tuple[int | None, int]:
     """
     start = None
     for p in paragraphs:
-        # Strip a leading section number so a numbered "8. References" heading is
-        # still recognised (the heading-correction pass removes the number only
-        # later, in Phase 3).
         heading = strip_leading_section_number(p.text).strip().lower()
-        if (
-            p.style == "Heading 1"
-            and not p.is_empty
-            and heading in ("references", "reference list", "bibliography")
-        ):
+        style_str = _get_style_name(p).lower().replace(" ", "")
+
+        if heading in ("references", "reference list", "bibliography"):
             start = p.index
             break
+
     if start is None:
         return None, len(paragraphs)
 
@@ -456,15 +454,17 @@ def _references_window(paragraphs: list) -> tuple[int | None, int]:
     for p in paragraphs:
         if p.is_empty or p.index <= start:
             continue
-        # Close the window at the next Heading-1 OR at an appendix heading
-        # detected by text (style-independent) — appendix content that JUTLP
-        # doesn't allow is then excluded from reference checking even when its
-        # heading isn't styled as a Heading-1.
-        if p.style == "Heading 1" or _is_appendix_heading(p.text):
+        style_str = _get_style_name(p).lower().replace(" ", "")
+        if "heading1" in style_str or _is_appendix_heading(p.text):
             end = p.index
             break
+
     return start, end
 
+def _get_style_name(p) -> str:
+    if hasattr(p, "style"):
+        return getattr(p.style, "name", str(p.style or ""))
+    return ""
 
 def _select_reference_entries(window: list) -> list[str]:
     """Two-tier reference selection used by BOTH extraction and comment
@@ -474,7 +474,7 @@ def _select_reference_entries(window: list) -> list[str]:
     Tier 2 (only if Tier 1 is empty): year+length heuristic — a non-empty
     paragraph containing a ``(YYYY)`` token and longer than 20 chars.
     """
-    styled = [p.text for p in window if p.style == REFERENCE_STYLE and not p.is_empty]
+    styled = [p.text for p in window if _get_style_name(p) == REFERENCE_STYLE and not p.is_empty]
     if styled:
         return styled
     return [
@@ -506,7 +506,13 @@ def check_references_section(docx_path: str) -> list[dict]:
     refs = extract_references(docx_path)
     results = []
 
-    if "References" in sections:
+    # Case-insensitive check and stripping section numbers
+    has_ref_section = any(
+        strip_leading_section_number(str(s)).strip().lower() in ("references", "reference list", "bibliography")
+        for s in sections
+    )
+
+    if has_ref_section:
         results.append(_result("REF001", "pass", "References section found"))
     else:
         results.append(_result("REF001", "fail", "References section not found"))
@@ -593,10 +599,12 @@ def _query_crossref(reference_text: str) -> dict | None:
         resp.raise_for_status()
         items = resp.json().get("message", {}).get("items", [])
         result = items[0] if items else None
+        # A real "no results" (HTTP 200, empty list) is safe to cache. A
+        # network/timeout failure returns below WITHOUT caching.
+        _cache_set(cache_key, result if result is not None else "__none__")
+        return result
     except requests.RequestException:
-        result = None
-    _cache_set(cache_key, result if result is not None else "__none__")
-    return result
+        return None
 
 
 _APA_CN_HEADERS = {
@@ -618,8 +626,12 @@ def _get_apa_via_content_negotiation(doi: str) -> str | None:
             timeout=10,
             allow_redirects=True,
         )
-        if resp.status_code != 200:
+        if resp.status_code == 404:
+            # Genuine "no such DOI" — safe to cache permanently.
             _cache_set(cache_key, "__none__")
+            return None
+        if resp.status_code != 200:
+            # 5xx / 429 / other — transient or rate-limit; do not cache.
             return None
         # CrossRef CN responses are UTF-8 but the Content-Type header often
         # omits the charset, causing requests to default to ISO-8859-1 and
@@ -632,7 +644,6 @@ def _get_apa_via_content_negotiation(doi: str) -> str | None:
         _cache_set(cache_key, text)
         return text
     except requests.RequestException:
-        _cache_set(cache_key, "__none__")
         return None
 
 
@@ -769,42 +780,91 @@ def verify_reference(entry_num: int, ref: str) -> dict:
         # CrossRef verified the paper but didn't return a DOI — just pass.
         return _result(rule_id, "pass", f"Entry {entry_num}: verified in CrossRef")
 
-    # CrossRef couldn't verify — ask the LLM for a second opinion
+    # CrossRef couldn't verify — ask the LLM for a second opinion but never
+    # surface its prose to the author. Its verdict may change fail -> warn,
+    # nothing more, and only when CrossRef is silent
     llm = _llm_check_reference(ref, match)
     if llm is not None:
+        log.info("LLM citation verdict for entry %d: %r", entry_num, llm)
         if llm.get("appears_complete"):
             return _result(rule_id, "warn",
-                f"Entry {entry_num}: not found in CrossRef but reference appears complete — "
-                f"{llm.get('reason', '')}: {ref[:80]}{doi_hint}")
-        issues_str = "; ".join(llm.get("issues", [])) or llm.get("reason", "")
+                f"Entry {entry_num}: we could not confirm this reference automatically — "
+                f"please check it against CrossRef: {ref[:80]}{doi_hint}")
         return _result(rule_id, "fail",
-            f"Entry {entry_num}: could not verify — {issues_str}: {ref[:80]}{doi_hint}")
+            f"Entry {entry_num}: we could not verify this reference — "
+            f"please confirm it exists and is complete: {ref[:80]}{doi_hint}")
 
     return _result(rule_id, "fail",
-        f"Entry {entry_num}: could not verify — reference may not exist: {ref[:80]}{doi_hint}")
+        f"Entry {entry_num}: we could not verify this reference — "
+        f"please confirm it exists and is complete: {ref[:80]}{doi_hint}")
+
+def _build_structured_reference(entry_num: int, ref: str, cref_result: dict) -> dict:
+    """Z-06: build one structured reference row from an already-computed
+    CREF result — zero extra CrossRef calls."""
+    year_m = YEAR_RE.search(ref)
+    year = year_m.group().strip("()")[:4] if year_m else None
+    authors = _extract_ref_author_part(ref)
+
+    doi = None
+    doi_m = _DOI_IN_URL.search(ref)
+    if doi_m:
+        doi = doi_m.group(0).rstrip(".,;:)")
+    elif cref_result.get("doi_url"):
+        doi = cref_result["doi_url"].replace("https://doi.org/", "")
+
+    status = cref_result.get("status")
+    message = (cref_result.get("message") or "").lower()
+    if status == "pass":
+        mapped_status = "verified"
+    elif "doi may not match" in message or "different year" in message:
+        mapped_status = "doi_mismatch"
+    else:
+        mapped_status = "not_found"
+
+    raw_kind = classify_reference(ref)
+    if raw_kind == "thesis":
+        kind = "thesis"
+    elif raw_kind == "journal":
+        kind = "article"
+    else:
+        kind = "report"
+    return {
+        "raw_text": ref,
+        "authors": authors or None,
+        "year": year,
+        "title": None,  # Omitted to avoid extra network overhead
+        "doi": doi,
+        "source_url": cref_result.get("doi_url") or (f"https://doi.org/{doi}" if doi else None),
+        "status": mapped_status,
+        "kind" : kind,
+    }
 
 
-def check_references(docx_path: str, delay: float = 0.5) -> list[dict]:
+def check_references(docx_path: str, delay: float = 0.5) -> tuple[list[dict], list[dict]]:
+    """Returns (flat_results, structured_references).
+    structured_references is captured in the same loop calling verify_reference."""
     results = []
     results += check_references_section(docx_path)
-
     refs = extract_references(docx_path)
     if not refs:
-        return results
+        return results, []
 
     results += check_duplicate_references(refs)
     results += check_reference_citations(docx_path, refs)
     results += check_orphan_citations(docx_path, refs)
 
+    structured: list[dict] = []
     for i, ref in enumerate(refs, start=1):
         results.append(check_entry_year(i, ref))
         results.append(check_entry_author(i, ref))
         results.extend(check_reference_type_style(i, ref))
-        results.append(verify_reference(i, ref))
+        cref_result = verify_reference(i, ref)
+        results.append(cref_result)
+        structured.append(_build_structured_reference(i, ref, cref_result))
         if i < len(refs):
             time.sleep(delay)
 
-    return results
+    return results, structured
 
 
 def build_reference_report(results: list[dict]) -> dict:
@@ -1054,7 +1114,10 @@ def check_text_dois(refs: list[str], delay: float = 0.5) -> list[dict]:
 
 
 def check_and_report(docx_path: str) -> dict:
-    return build_reference_report(check_references(docx_path))
+    results, structured_references = check_references(docx_path)
+    report = build_reference_report(results)
+    report["references"] = structured_references  # Z-06
+    return report
 
 
 if __name__ == "__main__":

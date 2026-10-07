@@ -474,34 +474,10 @@ def check_dot_points(docx_path: str) -> list[dict]:
     """Flag bullet/numbered list paragraphs — continuous prose is expected in JUTLP."""
     doc = DocxDocument(docx_path)
 
-    results: list[dict] = []
     in_practitioner_notes = False
-    group_start_idx = None
-    group_anchor = ""
-    group_count = 0
-
-    def _flush_group() -> None:
-        nonlocal group_start_idx, group_anchor, group_count
-        if group_start_idx is None:
-            return
-        n = len(results) + 1
-        message = "Avoid bullet/dot-point lists — continuous prose is expected in academic journal manuscripts."
-        if group_count > 1:
-            message = (
-                "This list contains "
-                + str(group_count)
-                + " bullet/dot-point items. Convert the list to continuous prose for an academic journal manuscript."
-            )
-        results.append({
-            "rule_id": f"DOTPT{n:03d}",
-            "status": "fail",
-            "message": message,
-            "para_idx": group_start_idx,
-            "anchor_phrase": group_anchor,
-        })
-        group_start_idx = None
-        group_anchor = ""
-        group_count = 0
+    first_idx = None
+    first_anchor = ""
+    total_items = 0
 
     for i, p in enumerate(doc.paragraphs):
         text = (p.text or "").strip()
@@ -509,17 +485,14 @@ def check_dot_points(docx_path: str) -> list[dict]:
             continue
         low = text.lower()
         if low in {"practitioner notes", "practioner notes"}:
-            _flush_group()
             in_practitioner_notes = True
             continue
         if low == "keywords":
-            _flush_group()
             in_practitioner_notes = False
         if in_practitioner_notes:
             continue
         style_name = p.style.name if p.style else ""
         if style_name in _INFORMAL_SKIP_STYLES:
-            _flush_group()
             continue
 
         is_list = "list" in style_name.lower()
@@ -529,22 +502,32 @@ def check_dot_points(docx_path: str) -> list[dict]:
                 is_list = True
 
         if not is_list:
-            _flush_group()
             continue
 
-        words = text.split()
-        anchor = " ".join(words[:4]) if len(words) >= 4 else text
-        if group_start_idx is None:
-            group_start_idx = i
-            group_anchor = anchor
-        group_count += 1
+        total_items += 1
+        if first_idx is None:
+            first_idx = i
+            words = text.split()
+            first_anchor = " ".join(words[:4]) if len(words) >= 4 else text
 
-    _flush_group()
-
-    if not results:
+    if total_items == 0:
         return [_result("DOTPT000", "pass", "No bullet or dot-point lists found")]
 
-    return results
+    if total_items == 1:
+        message = "Avoid bullet/dot-point lists — continuous prose is expected in academic journal manuscripts."
+    else:
+        message = (
+            "Avoid bullet/dot-point lists — continuous prose is expected in academic journal manuscripts. "
+            f"Found {total_items} bullet/dot-point items."
+        )
+
+    return [{
+        "rule_id": "DOTPT001",
+        "status": "fail",
+        "message": message,
+        "para_idx": first_idx,
+        "anchor_phrase": first_anchor,
+    }]
 
 
 # ── New constants for additional checks ──────────────────────────────────────
@@ -637,7 +620,7 @@ def check_body_paragraph_styles(docx_path: str) -> list[dict]:
     unique_styles = ", ".join(sorted({p.style for p in wrong}))
     return [_result("STY003", "warn",
         f"{len(wrong)} body paragraph(s) use non-Normal styles ({unique_styles}) — "
-        "body text should use the Normal style (11pt Arial, left-justified, 1.15 line-spacing)")]
+        "body text should use the Normal style (11pt Arial, justified, 1.15 line-spacing)")]
 
 
 def check_reference_paragraph_styles(docx_path: str) -> list[dict]:

@@ -339,4 +339,86 @@ manuscript retention/transmission).
 **Status:** requires backend changes to add `error_code`/`filename` to error responses that
 don't currently have them — flagging as a small follow-up task, not done in this doc pass.
 
+## D-03 Reference validation: where the LLM is and is not involved
+Reference verification (`app/services/reference_checker.py`) is deterministic and
+CrossRef-driven. The language model is a *second opinion only*, invoked when CrossRef
+returns no confident match. It is deliberately constrained:
 
+- It may change a verdict **fail → warn** (never `fail → pass`). A reference CrossRef
+  could not confirm is never reported as verified.
+- It may **never** add a reference, author, year, or DOI. Its output is not stored as
+  reference data and is never written back into the document.
+- Its prose (`reason` / `issues`) is **never shown to the author**. Author-facing Word
+  comments use fixed plain-language wording ("we could not confirm this reference
+  automatically"). The model's text is logged internally with the reference index for
+  auditing only.
+- A `warn` that results from a model opinion is just that — a model opinion, not a
+  verification. It is traceable to a logged verdict, never to a CrossRef response.
+
+Separately, `app/services/ai/prompt_builder.py` instructs the *editorial* LLM not to
+touch reference data — that guard is prompt-level only, not a hard constraint.
+
+Negative caching: a network/timeout failure during CrossRef lookup is **not** cached, so
+a transient outage cannot become a permanent "not found" verdict. A genuine 404 (or an
+empty search result) *is* cached.
+
+---
+
+## Update — Sprint 2 (D-12): contract corrections
+
+The sections above described the backend as it existed before this sprint's hardening
+work. The following corrections bring the doc back in line with the actual code.
+
+**Upload failure envelope (D-04):** all upload failure responses now include `error`,
+`error_code`, `message`, and `detail` consistently. New codes added: `EMPTY_FILE`,
+`CORRUPT`, `PASSWORD_LOCKED`, `FAKE_DOCX` (a `.docx`-named file containing non-zip
+content), and `UNSUPPORTED_CONTENT` (macros or unexpected embedded objects, Z-04). All
+checked server-side on the file's header bytes/zip contents.
+
+**LLM failure isolation (D-05):** `run_editorial_review` and `generate_commented_docx`
+are now wrapped in try/except. A missing or invalid `OPENAI_API_KEY` no longer kills the
+whole pipeline — deterministic corrections still complete, and `stage_errors` includes an
+entry with `severity: "critical"` for the AI review stage.
+
+**Download endpoint (D-06, D-08):** `/api/download/<id>` now returns `409 NOT_READY` if
+the session isn't done, `404 FILE_MISSING` if the file no longer exists on disk, and
+`410 ALREADY_DOWNLOADED` on a second download attempt. A successful download triggers
+immediate temp-directory cleanup via `@after_this_request`.
+
+**Temp file lifecycle (D-06):** every terminal pipeline state now cleans up its temp
+directory. A background sweeper thread runs every 5 minutes, deleting any session's
+files once `FILE_TTL_SECONDS` (default 24h, env-configurable) has elapsed.
+
+**Session store (D-07) — explicitly deferred.** Given the planned migration from Vercel
+to Railway, implementing Redis now was judged not worth the time cost. Interim
+mitigation: gunicorn pinned to a single worker, `_sessions` mutations wrapped in a lock,
+pruned by the D-06 TTL sweeper.
+
+**Upload limits (D-11):** `writer.html` now receives `max_upload_mb`/`max_word_count`
+from the `/` route, sourced from the same env vars the backend enforces.
+
+**Article carousel (D-10):** `GET /api/jutlp-articles` now returns
+`{"articles": [...], "degraded": bool}`. Abstracts trimmed to 400 characters. A
+fetch-in-progress lock prevents concurrent crawl stampedes. A circuit breaker opens after
+3 consecutive failures, pausing attempts for 15 minutes. `limit` default is now `10`
+everywhere.
+
+**References payload (Z-06):** `check_references` now returns
+`tuple[list[dict], list[dict]]` — existing flat results plus a structured `references[]`
+array, built in the same pass (no duplicate CrossRef calls). Each entry has `raw_text`,
+`authors`, `year`, `doi`, `source_url`, and `status`
+(`verified`/`doi_mismatch`/`not_found`). `title` is currently always `null` — would need
+a second CrossRef call per reference; flagged as a known gap.
+
+**Test fixtures:** `01_valid_identified.docx` was found corrupted (missing its
+References section) and was regenerated. Note: 2 tests in `test_jutlp_validator.py`
+(`TestDeidentifiedWithAuthorLeak`) are still failing due to a separate fixture issue with
+`06_deidentified_author_leak.docx` triggering unrelated structural check failures — not
+caused by this sprint's D-04 through D-12 changes, flagged as a follow-up.
+
+## Open — not yet closed
+
+- `references[].title` is always null.
+- 2 tests in `test_jutlp_validator.py` failing on a fixture generation issue, unrelated
+  to this sprint's core changes — needs follow-up.
+- D-01/D-02 status needs verification against current `main`.

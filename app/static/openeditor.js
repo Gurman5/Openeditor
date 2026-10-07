@@ -8,6 +8,7 @@ document.addEventListener('alpine:init', () => {
     fileError: null,
     sessionId: null,
     uploadError: null,
+    processingError: null,
 
     processingPercent: 0,
     elapsedSeconds: 0,
@@ -20,26 +21,17 @@ document.addEventListener('alpine:init', () => {
       abstract: 'This JUTLP article introduces the AI Assessment Scale as a practical framework for deciding when and how generative AI can be used in educational assessment.',
       url: 'https://open-publishing.org/journals/index.php/jutlp/article/view/810/769'
     }],
+    carouselDegraded: false,
     jutlpArticleIndex: 0,
     jutlpRotateTimer: null,
     showCancelConfirm: false,
     showLeaveConfirm: false,
-
-    // ─── RESULTS state ───
-    totalCorrections: 34,
-    freeItems: [
-      { label: 'Heading hierarchy', status: '12 FIXED' },
-      { label: 'Line spacing and margins', status: '9 FIXED' },
-      { label: 'In-text citation format', status: '8 FIXED' },
-      { label: 'Title page and running head', status: '5 FIXED' }
-    ],
-    reviewItems: [
-      { label: '6 references could not be verified' },
-      { label: '2 DOIs did not resolve' },
-      { label: '1 table caption format unclear' }
-    ],
     hasDownloaded: false,
     resultsPayload: null,
+    showCleanCopyNote: false,
+    showReferences: false,
+    showVerified: false,
+    openGroups: [],
 
     get fileSizeLabel() {
       if (!this.selectedFile) return '';
@@ -47,6 +39,92 @@ document.addEventListener('alpine:init', () => {
       return mb.toFixed(1) + ' MB';
     },
 
+    get manualReviewItems() {
+      if (!this.resultsPayload) return [];
+      const issueFails = (this.resultsPayload.issues || []).filter(i => i.status === 'fail');
+      const refFails = (this.resultsPayload.ref_verifications || []).filter(r => r.status === 'fail');
+      return [...issueFails, ...refFails];
+    },
+
+    get manualReviewGroups() {
+      const map = new Map();
+      for (const item of this.manualReviewItems) {
+        const label = this._manualReviewCategory(item.rule_id);
+        if (!map.has(label)) map.set(label, []);
+        map.get(label).push(item);
+      }
+      return [...map.entries()].map(([label, items]) => ({ label, count: items.length, items }));
+    },
+
+    _manualReviewCategory(ruleId) {
+      if (/^(CREF|HREF|DOIT|CONS|REF)/.test(ruleId)) return 'References and citations';
+      if (/^(SEC|MET|DIS|CON|SPE|FIG|TAB)/.test(ruleId)) return 'Structure';
+      if (/^(FP|AFF)/.test(ruleId)) return 'Front page';
+      if (/^STY/.test(ruleId)) return 'Style';
+      if (/^LLM/.test(ruleId)) return 'Editorial';
+      if (/^SAM/.test(ruleId)) return 'Front page';
+      return 'Other';
+    },
+
+    referenceStatusLabel(status) {
+      return { verified: 'Verified', doi_mismatch: 'DOI mismatch', not_found: 'Not found' }[status] || status;
+    },
+    toggleGroup(label) {
+      this.openGroups[label] = !this.openGroups[label];
+    },
+    viewReferences() { this.showReferences = true; },
+    backToResults() { this.showReferences = false; },
+    toggleVerified() { this.showVerified = !this.showVerified; },
+    notFoundExplanation(kind) {
+      if (kind === 'thesis') return 'Theses are often not in Crossref. Check it against the original.';
+      if (kind === 'report') return 'Reports and grey literature are often not in Crossref. Check it against the original.';
+      return 'We could not confirm this reference in Crossref. Check the author, year and title.';
+    },
+
+    get manualReviewTotal() {
+      return this.manualReviewItems.length;
+    },
+
+    get changesMadeGroups() {
+      if (!this.resultsPayload) return [];
+      return (this.resultsPayload.changes_made || {}).groups || [];
+    },
+
+     get sortedReferences() {
+      if (!this.resultsPayload) return [];
+      const order = { not_found: 0, doi_mismatch: 1, verified: 2 };
+      return [...(this.resultsPayload.references || [])]
+        .sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3));
+    },
+    get references() {
+      return this.resultsPayload ? (this.resultsPayload.references || []) : [];
+    },
+    get notFoundReferences()  { return this.references.filter(r => r.status === 'not_found'); },
+    get doiMismatchReferences() { return this.references.filter(r => r.status === 'doi_mismatch'); },
+    get verifiedReferences()  { return this.references.filter(r => r.status === 'verified'); },
+    get attentionCount() { return this.notFoundReferences.length + this.doiMismatchReferences.length; },
+    get totalReferences() { return this.references.length; },
+
+    get changesMadeTotal() {
+      if (!this.resultsPayload) return 0;
+      return (this.resultsPayload.changes_made || {}).total || 0;
+    },
+
+    get downloadFileLabel() {
+      if (!this.resultsPayload) return '';
+      return this.resultsPayload.output_filename || this.resultsPayload.filename || '';
+    },
+     get isCleanResult() {
+      return this.resultsPayload
+        && this.manualReviewTotal === 0
+        && this.changesMadeTotal === 0;
+    },
+    get wordCount() {
+      return this.resultsPayload ? (this.resultsPayload.word_count || 0) : 0;
+    },
+    get referenceCount() {
+      return this.resultsPayload ? (this.resultsPayload.reference_count || 0) : 0;
+    },
     init() {
       window.onbeforeunload = () => {
         if ((this.currentPhase === 'results' || this.currentPhase === 'upgrade' || this.currentPhase === 'download') && !this.hasDownloaded) {
@@ -80,8 +158,11 @@ document.addEventListener('alpine:init', () => {
       if (!file.name.toLowerCase().endsWith('.docx')) {
         return fail('This file type is not supported. Please upload a Microsoft Word document (.docx).');
       }
-      if (file.size > 20 * 1024 * 1024) {
-        return fail('This file is larger than 20 MB. Please upload a smaller file.');
+
+      const maxMb = window.MAX_UPLOAD_MB || 20;
+
+      if (file.size > maxMb * 1024 * 1024) {
+        return fail(`This file is larger than ${maxMb} MB. Please upload a smaller file.`);
       }
 
       const readable = await this.checkReadable(file);
@@ -132,6 +213,7 @@ document.addEventListener('alpine:init', () => {
       this.processingPercent = 0;
       this.elapsedSeconds = 0;
       this.uploadError = null;
+      this.processingError = null;
 
       this.elapsedTimer = setInterval(() => {
         this.elapsedSeconds++;
@@ -171,9 +253,11 @@ document.addEventListener('alpine:init', () => {
           if (err.errorCode === 'CANCELLED') {
             this.currentPhase = 'cancelled';
           } else if (err.errorCode === 'TIMEOUT') {
+            this.processingError = null;
             this.currentPhase = 'timeout';
           } else {
             console.error('Processing failed:', err);
+            this.processingError = `${err.errorCode || 'ERROR'}: ${err.message || 'Unknown error'}`;
             this.currentPhase = 'timeout';
           }
         });
@@ -229,13 +313,18 @@ document.addEventListener('alpine:init', () => {
       }
       this.hasDownloaded = true;
     },
+    
+    requestCleanCopy() {
+      this.showCleanCopyNote = true;
+    },
 
     get currentArticle() {
       return this.jutlpArticles[this.jutlpArticleIndex];
     },
 
-    async fetchJutlpArticles() {
-      const articles = await fetchCarouselArticles();
+     async fetchJutlpArticles() {
+      const { articles, degraded } = await fetchCarouselArticles();
+      this.carouselDegraded = degraded;
       if (articles.length) {
         this.jutlpArticles = articles;
         this.jutlpArticleIndex = 0;

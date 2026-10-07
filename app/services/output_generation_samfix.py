@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import zipfile
+import re
+import unicodedata
 
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -28,6 +30,16 @@ from app.services.output_filename import build_output_filename_from_author_line
 from app.services.quotation_utils import find_quote_spans
 from app.services.run_font_corrections import apply_run_font_corrections
 from app.services.timestamps import now_sydney_iso
+
+
+def normalize_marker(marker: str) -> str:
+    """Normalizes marker variants so 'ᵃ' -> 'a', '^a' -> 'a', '1' -> '1'."""
+    if not marker:
+        return ""
+    # Convert unicode superscripts (e.g., ᵃ -> a, ᵇ -> b)
+    normalized = unicodedata.normalize('NFKD', str(marker))
+    # Remove carets (^), spaces, and convert to lowercase
+    return re.sub(r'[\^\s]', '', normalized).strip().lower()
 
 
 def _fix_au_spellings_in_text(text: str) -> str:
@@ -1698,6 +1710,7 @@ def authorFormatCheck(docxpath, author_state):
     affiliation_check = _run_affiliation_validation_in_authors(
         current_authors_line,
         current_authors_block,
+        docxpath=docxpath,
     )
 
     if naming_pattern_valid is False:
@@ -1807,6 +1820,9 @@ def build_author_check_plan(docxpath):
 #split affiliations lines from authors block (skip first author line)
 def _extract_authors_affiliations_section_lines(text):
     clean = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Clean Unicode superscripts ('ᵃ' -> 'a') and carets ('^a' -> 'a')
+    clean = unicodedata.normalize('NFKD', clean)
+    clean = re.sub(r'\^([a-zA-Z0-9]+)', r'\1', clean)
     lines = clean.split("\n")
 
     affiliations_lines = []
@@ -2035,12 +2051,38 @@ def _build_affiliation_mismatch_message(affiliation_result):
 
 
 #run affiliation consistency check (LLM) from source author line + affiliation lines
-def _run_affiliation_validation_in_authors(source_authors_line, current_authors_block):
+# run affiliation consistency check (LLM) from source author line + affiliation lines
+def _run_affiliation_validation_in_authors(source_authors_line, current_authors_block, docxpath=None):
     if RUN_AFFILIATION_CHECK_IN_AUTHORS is False:
         return None
 
+    # Pre-normalize unicode superscripts ('ᵃ' -> 'a') and carets ('^a' -> 'a')
+    normalized_authors_line = unicodedata.normalize('NFKD', source_authors_line)
+    normalized_authors_line = re.sub(r'\^([a-zA-Z0-9]+)', r'\1', normalized_authors_line)
+
     affiliations_lines = _extract_authors_affiliations_section_lines(current_authors_block)
+    
+    # Fallback: if block only had 1 line, pull affiliations directly from document paragraphs
+    if not affiliations_lines and docxpath:
+        try:
+            paras = load_paragraphs(docxpath)
+            affiliations_lines = [
+                p.text.strip() for p in paras 
+                if p.style == "Author Affiliations" or "Affiliation" in p.style
+            ]
+        except Exception:
+            pass
+
     affiliation_text = "\n".join(affiliations_lines)
+    
+    # Normalize affiliation lines as well
+    affiliation_text = unicodedata.normalize('NFKD', affiliation_text)
+    affiliation_text = re.sub(r'\^([a-zA-Z0-9]+)', r'\1', affiliation_text)
+
+    # If no affiliations exist in the document to compare against, do not flag mismatch
+    if not affiliation_text.strip():
+        return None
+
     affiliation_result = {
         "is_marker_mapping_consistent": True,
         "missing_in_affiliations": [],
@@ -2054,7 +2096,7 @@ def _run_affiliation_validation_in_authors(source_authors_line, current_authors_
             user_prompt=(
                 AFFILIATION_MATCH_PROMPT
                 + "\n\nAuthors line:\n"
-                + source_authors_line
+                + normalized_authors_line
                 + "\n\nAffiliations section lines:\n"
                 + affiliation_text
             ),
@@ -9174,6 +9216,7 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
     body_fixes = 0
     heading_fixes = 0
     reference_fixes = 0
+    next_id = 5000
     changed = False
     quote_style_needed = False
     next_table_title = False
@@ -9192,8 +9235,9 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
                 raw_el,
                 REFERENCE_ENTRY_REQUIRED_STYLE_ID,
                 sname,
-                change_id=5000 + reference_fixes,
+                change_id = next_id,
             )
+            next_id += 1
             reference_fixes += 1
             changed = True
             continue
@@ -9243,8 +9287,9 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
                     raw_el,
                     required_style,
                     sname,
-                    change_id=6100 + heading_fixes,
+                    change_id = next_id,
                 )
+                next_id += 1
                 heading_fixes += 1
                 changed = True
             continue
@@ -9254,7 +9299,8 @@ def _apply_body_and_reference_style_fixes(input_path, output_path):
                 continue
             if body_fixes >= _MAX_BODY_STYLE_FIXES:
                 continue
-            _apply_tracked_style_change(raw_el, "Normal", sname, change_id=6000 + body_fixes)
+            _apply_tracked_style_change(raw_el, "Normal", sname, change_id=next_id)
+            next_id += 1
             body_fixes += 1
             changed = True
 
