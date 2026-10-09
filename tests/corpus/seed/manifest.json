@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "documents": [
+    {
+      "id": "seed-01",
+      "source_url": "",
+      "license": "",
+      "license_status": "",
+      "mode": "student",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "APA 7 student paper used as a baseline document."
+    },
+    {
+      "id": "seed-02",
+      "source_url": "",
+      "license": "",
+      "license_status": "",
+      "mode": "professional",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "Student-written document using APA 7 professional paper formatting."
+    },
+    {
+      "id": "seed-03",
+      "source_url": "",
+      "license": "",
+      "license_status": "",
+      "mode": "student",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "APA 7 student paper that includes an abstract and references."
+    },
+    {
+      "id": "seed-04",
+      "source_url": "",
+      "license": "",
+      "license_status": "",
+      "mode": "professional",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "Student-written document using professional APA 7 formatting with a table or figure."
+    }
+  ]
+}
