@@ -28,6 +28,20 @@ def _find_docx_files():
 
 DOCX_FILES = _find_docx_files()
 
+SEED_DIR = CORPUS_ROOT / "seed"
+SEED_FILES = sorted(SEED_DIR.glob("*.docx"))
+
+
+def test_seed_corpus_has_exactly_four_docx_files():
+    assert len(SEED_FILES) == 4, (
+        f"Expected exactly 4 seed DOCX files in {SEED_DIR}, "
+        f"but found {len(SEED_FILES)}"
+    )
+
+
+def _doc_id(path: Path) -> str:
+    """Readable pytest ID for each corpus document."""
+    return str(path.relative_to(CORPUS_ROOT))
 
 def _doc_id(path: Path) -> str:
     """Readable pytest ID for each corpus document."""
