@@ -288,7 +288,7 @@ CITATION_FORMAT_SCHEMA = {
 #and then check it's in title case. if not, change the title into title case and insert in into the document as a tracked change, replacing the original title.
 #then, check if the title is over two lines long, and check if its over 15 words long. If it is, get the LLM to write a comment in effect saying the title can be  No More Than Two Lines and/or Typically 15 Words in Total (depending on which error is flagged - and then have a short suggestions section suggesting some fixes)
 
-_TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "domain", "JUTLP Template 2026.docx")
+_TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "domain", "APA7 Base Template.docx")
 _TEMPLATE_STYLE_NAMES = None
 _TEMPLATE_STYLE_ID_MAP = None
 _TEMPLATE_STYLE_XML_MAP = None
