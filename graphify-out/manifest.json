@@ -953,12 +953,6 @@
     "ast_hash": "53e2c4b47c877d3522d7bcb715a64f80",
     "semantic_hash": ""
   },
-  "docs/Curated Refernce point (1).md": {
-    "mtime": 1791433541.029111,
-    "seen": 1791434912.8562665,
-    "ast_hash": "87fdf7de536cb21d058e04222a79d734",
-    "semantic_hash": ""
-  },
   "docs/apa7-backlog-C.md": {
     "mtime": 1791434541.640376,
     "seen": 1791434912.8562672,
@@ -972,9 +966,9 @@
     "semantic_hash": ""
   },
   "docs/apa7-backlog-K.md": {
-    "mtime": 1791434887.1873999,
-    "seen": 1791434912.8562691,
-    "ast_hash": "f290a2e110efdac6746fc8fc80974b08",
+    "mtime": 1791533311.6717288,
+    "seen": 1791610286.4747274,
+    "ast_hash": "cfe2711c8f9fc7f72323a8e2c71b1f5a",
     "semantic_hash": ""
   },
   "docs/apa7-rework-plan.md": {
@@ -1035,6 +1029,12 @@
     "mtime": 1791380645.9075165,
     "seen": 1791434912.8562806,
     "ast_hash": "03e9f91975d7d94e96dc80f3fa2f32fd",
+    "semantic_hash": ""
+  },
+  "docs/Curated Reference Point.md": {
+    "mtime": 1791433541.029111,
+    "seen": 1791610286.4747229,
+    "ast_hash": "87fdf7de536cb21d058e04222a79d734",
     "semantic_hash": ""
   }
 }
