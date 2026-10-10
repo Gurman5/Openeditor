@@ -21,7 +21,7 @@ from app.services.decimal_corrections import apply_decimal_corrections
 from app.services.document_normalisation_services import normalise_docx
 from app.services.grammar_corrections import apply_contingent_grammar_comments
 from app.services.heading_corrections import apply_heading_corrections
-from app.services.jutlp_validator import validate
+from app.services.apa7_validator import validate
 from app.services.language_corrections import AUTHOR, DATE, apply_au_spelling_corrections
 from app.services.number_word_corrections import apply_number_word_corrections
 from app.services.output_generation import (

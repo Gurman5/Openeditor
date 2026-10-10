@@ -12,7 +12,7 @@ from pathlib import Path
 import requests
 from lxml import etree
 
-from app.domain.canonical_jultp_template import strip_leading_section_number
+from app.domain.apa7_template import strip_leading_section_number
 from app.services.ai.llm_client import LLMError, call_llm_json
 from app.services.document_analysis_services import extract_main_sections, load_paragraphs
 from app.services.reference_reconstructor import (

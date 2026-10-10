@@ -12,7 +12,7 @@ from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from lxml import etree
 
-from app.domain.canonical_jultp_template import (
+from app.domain.apa7_template import (
     CANONICAL_STRUCTURE,
     SECTION_RENAME_MAP,
     strip_leading_section_number,
@@ -3826,7 +3826,7 @@ DISCUSSION_REQUIRED_SUBHEADINGS = [
 
 # Synonym map: each required canonical subheading maps to a list of
 # equivalent heading texts authors commonly use. Single source of truth
-# lives in ``canonical_jultp_template.CANONICAL_STRUCTURE['subsection_aliases']``
+# lives in ``apa7_template.CANONICAL_STRUCTURE['subsection_aliases']``
 # so the validator (per-rule pass/fail) and this module (consolidated
 # missing-subsection comment) stay aligned. The alias here is just a
 # local reference for backwards compatibility with code that imported the
@@ -9504,7 +9504,7 @@ def _template_heading_1_name(section_name):
 
 
 # Built from the shared SECTION_RENAME_MAP (single source of truth, see
-# canonical_jultp_template) so this silent Heading 1 rename covers exactly the
+# apa7_template) so this silent Heading 1 rename covers exactly the
 # same wordings as the tracked heading-corrections pass. Keys are normalised
 # aliases; values are the canonical JUTLP heading label.
 HEADING_1_TEXT_NORMALIZATIONS = {

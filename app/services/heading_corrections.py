@@ -29,7 +29,7 @@ from copy import deepcopy
 
 from lxml import etree
 
-from app.domain.canonical_jultp_template import (
+from app.domain.apa7_template import (
     SECTION_RENAME_MAP,
     strip_leading_section_number,
 )
