@@ -1,10 +1,9 @@
 """LLM-driven keyword generation for manuscripts missing a Keywords section.
 
-JUTLP's template requires a Keywords section directly under Practitioner
-Notes — "Max. 5, 1 line, no abbreviations" per the editor's guidance. When
-the author has omitted the section, the front-page restyling pass already
-inserts an empty `Keywords` heading and a "please add 5 keywords" comment.
-This module generates a starter set of 5 keyword candidates from the
+APA 7 places three to five keywords on a line directly below the abstract.
+When the author has omitted the section, the front-page restyling pass
+already inserts an empty `Keywords` heading and a "please add keywords"
+comment. This module generates a starter set of keyword candidates from the
 manuscript's title + abstract so the editor receives a draft list as a
 tracked insertion rather than an empty placeholder.
 
@@ -33,8 +32,8 @@ from app.services.ai.llm_client import LLMError, call_llm_json
 
 # Hard caps -----------------------------------------------------------------
 
-# Maximum keywords ever returned. Per JUTLP template ("Max. 5").
-_MAX_KEYWORDS = 5
+# Maximum keywords ever returned. APA 7 recommends 3–5; hard cap is 8
+_MAX_KEYWORDS = 8
 
 # Maximum words per keyword. Multi-word phrases like "professional learning
 # communities" are fine; 5+ word phrases are over-specific.
@@ -64,17 +63,15 @@ _KEYWORDS_SCHEMA = {
 
 
 _SYSTEM_PROMPT = """\
-You are an editor for the Journal of University Teaching and Learning
-Practice (JUTLP) generating a Keywords list for a manuscript that omitted
-one.
+You are an editor generating a Keywords list for an APA 7 manuscript that omitted one.
 
-Your ONLY task is to produce exactly five short keywords that describe the
+Your ONLY task is to produce exactly three to five short keywords that describe the
 manuscript's topic, drawn from its title and abstract.
 
 Rules:
-1. Return exactly five keywords.
+1. Return three to five keywords.
 2. Each keyword is 1-4 words. No full sentences, no clauses.
-3. NO acronyms or initialisms (per JUTLP template: "no abbreviations").
+3. NO acronyms or initialisms (write terms out in full).
    Write `artificial intelligence`, not `AI`. Write `peer review`, not `PR`.
 4. Use lowercase except for proper nouns (e.g. `Bloom's taxonomy`,
    `Australia`). Do not capitalise common nouns.

@@ -72,8 +72,7 @@ _GRAMMAR_SCHEMA = {
 
 _SYSTEM_PROMPT = """\
 You are a professional Australian English grammar checker reviewing an academic
-manuscript accepted for publication in the Journal of University Teaching and
-Learning Practice (JUTLP).
+manuscript that follows APA 7, Australian English.
 
 Your ONLY task is to identify STRUCTURAL grammar errors. Do NOT correct vocabulary
 or word choice under any circumstances.

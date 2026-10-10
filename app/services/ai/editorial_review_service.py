@@ -35,7 +35,7 @@ def run_editorial_review(
     deterministic_check_result: dict | None = None,
     ref_check_result: dict | None = None,
 ) -> EditorialReviewResult:
-    """Run LLM-based editorial review on a JUTLP manuscript.
+    """Run LLM-based editorial review on an APA7 manuscript.
 
     Pipeline:
     1. Parse DOCX into paragraphs + structure

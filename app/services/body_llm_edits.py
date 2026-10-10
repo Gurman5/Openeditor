@@ -192,10 +192,9 @@ BODY_EDIT_SCHEMA = {
 
 
 BODY_EDIT_SYSTEM_PROMPT = (
-    "You are a copy-editor for the Journal of University Teaching and Learning Practice "
-    "(JUTLP). The journal uses Australian English and APA 7. You review one paragraph of "
-    "an academic manuscript and return a JSON list of SURGICAL word- or short-phrase-"
-    "level corrections only.\n"
+    "You are a copy-editor following APA 7, Australian English conventions "
+    "You review one paragraph of an academic manuscript and return a JSON "
+    "list of SURGICAL word- or short-phrase-level corrections only.\n"
     "\n"
     "STRICT RULES — violations must be rejected by you before returning:\n"
     "1. Each `find` must be an EXACT, case-sensitive, verbatim substring of the input paragraph.\n"
@@ -205,7 +204,7 @@ BODY_EDIT_SYSTEM_PROMPT = (
     "5. If the correct fix would require rewriting the sentence, SKIP the edit entirely.\n"
     "\n"
     "SPELLING DIRECTION — CRITICAL:\n"
-    "   Convert spelling variants to JUTLP house style ONLY. Never reverse the direction.\n"
+    "   Convert spelling variants to Australian English house style ONLY. Never reverse the direction.\n"
     "   - Correct direction (convert): utilize->utilise, center->centre, analyze->analyse, "
     "organization->organisation, color->colour, behavior->behaviour, programme->program."
     "\n"
@@ -346,7 +345,7 @@ def _validate_edit(edit: dict, paragraph_text: str) -> bool:
         return False
 
     # Reject when every occurrence of `find` sits inside a direct quotation.
-    # JUTLP policy: direct quotations retain the source's original text. If
+    # APA7 policy: direct quotations retain the source's original text. If
     # the same phrase also appears unquoted, that unquoted occurrence may still
     # be edited; the DOCX application pass skips quoted repeats.
     from app.services.quotation_utils import is_in_quote

@@ -428,10 +428,6 @@ def _build_user_prompt(
     # the LLM treats it as an instruction to flag the absence and duplicates
     # the deterministic check (wasting tokens and producing redundant notes).
     if fp["title"] != "Not found":
-        # Pre-compute the word count so the LLM doesn't have to. Previously
-        # the LLM mis-counted words and falsely flagged titles under 15 words
-        # as "too long." Presenting the exact count plus the limit makes the
-        # length check a trivial lookup rather than a counting task.
         parts.append(f"## Title\n{fp['title']}")
     if fp["authors"] != "Not found":
         parts.append(f"## Authors\n{fp['authors']}")

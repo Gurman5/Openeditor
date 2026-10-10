@@ -16,8 +16,8 @@ Design choices:
   apply pass anchors a comment at ``original`` with ``reason`` as the body.
 * **Hard cap of 6 flags per document.** When sorting by ``len(reason)``
   ascending we keep the most confident / least hedged calls first.
-* **Min paragraph length 80 chars.** Captions, labels, and Practitioner
-  Notes are already filtered by the shared zone helpers; this is a defensive
+* **Min paragraph length 80 chars.** Captions and labelsare already 
+  filtered by the shared zone helpers; this is a defensive
   belt-and-braces guard against false positives on short cells.
 * **De-dupe vs ``grammar_corrections``.** When a grammar correction already
   fires on the same ``original`` substring the coherence flag is dropped to
@@ -119,8 +119,8 @@ _COHERENCE_SCHEMA = {
 
 
 _SYSTEM_PROMPT = """\
-You are an editor reviewing an academic manuscript accepted by the Journal of
-University Teaching and Learning Practice (JUTLP).
+You are an editor reviewing an academic manuscript that follows APA 7,
+ Australian English.
 
 Your ONLY task is to flag sentences whose meaning is unclear because the
 sentence fails to parse — fragments, missing or dropped words, a sudden
