@@ -113,7 +113,7 @@ class TestEditorialReviewService:
         system_prompt = args[0][0]
         user_prompt = args[0][1]
 
-        assert "JUTLP Editorial Guidelines" in system_prompt
+        assert "APA 7 Editorial Guidelines" in system_prompt
         assert "## Section: Introduction" in user_prompt
 
     @patch("app.services.ai.editorial_review_service.call_llm")

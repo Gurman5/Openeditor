@@ -42,7 +42,7 @@ def test_returns_five_keywords_on_clean_llm_response(monkeypatch):
         ]),
     )
     out = generate_keywords(_TITLE, _ABSTRACT)
-    assert len(out) == _MAX_KEYWORDS
+    assert len(out) == 5
     assert "collaborative learning" in out
 
 
