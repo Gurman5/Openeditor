@@ -16,7 +16,6 @@ KEPT UNCHANGED: "Enhancing Learning Environments Through Knowledge Flow: A \
 Neuroscience-Based Model" (colon-separated subtitle, title case, clear)
 → APA 7 titles use title case and commonly use the "Main Title: Subtitle" \
 format. This title is clear and well formed. Do NOT flag it.
-
 KEPT UNCHANGED: "What and How: Student Evaluations of Teaching in the \
 Scholarship of Teaching and Learning"
 → A colon-separated title in title case with clear subject matter. Do NOT flag \
