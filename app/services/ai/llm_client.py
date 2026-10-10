@@ -23,10 +23,26 @@ EDITORIAL_RESPONSE_SCHEMA = {
         "properties": {
             "notes": {
                 "type": "array",
+                "maxItems": 50,
                 "items": {
                     "type": "object",
                     "properties": {
-                        "category": {"type": "string"},
+                        "category": {
+                            "type": "string",
+                            "enum": [
+                                "title_quality",
+                                "abstract_quality",
+                                "introduction_quality",
+                                "method_quality",
+                                "results_quality",
+                                "discussion_quality",
+                                "conclusion_quality",
+                                "apa_style",
+                                "references_quality",
+                                "tables_figures_quality",
+                                "general",
+                            ],
+                        },
                         "severity": {
                             "type": "string",
                             "enum": ["high", "medium", "low"],
@@ -49,13 +65,14 @@ EDITORIAL_RESPONSE_SCHEMA = {
             },
             "structural_validations": {
                 "type": "array",
+                "maxItems": 50,
                 "items": {
                     "type": "object",
                     "properties": {
                         "rule_id": {"type": "string"},
                         "verdict": {
                             "type": "string",
-                            "enum": ["confirm", "false_positive"],
+                            "enum": ["confirm", "false_positive", "needs_review"],
                         },
                         "reason": {"type": "string"},
                     },

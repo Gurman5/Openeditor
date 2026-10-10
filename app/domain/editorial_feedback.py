@@ -15,7 +15,7 @@ class EditorialNote:
 class StructuralValidation:
     """LLM verdict on a single deterministic structural check result."""
     rule_id: str
-    verdict: str  # "confirm" | "false_positive"
+    verdict: str  # "confirm" | "false_positive" | "needs_review"
     reason: str
 
 

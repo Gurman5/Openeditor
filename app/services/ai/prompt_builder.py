@@ -1,40 +1,30 @@
 import re
 
-from app.domain.jutlp_editorial_examples import EDITORIAL_EXAMPLES
-from app.domain.jutlp_guidelines import JUTLP_GUIDELINES
+from app.domain.apa7_editorial_examples import APA7_EDITORIAL_EXAMPLES
+from app.domain.apa7_guidelines import APA7_GUIDELINES
 from app.domain.models import ParagraphRecord
 from app.services.document_analysis_services import (
     extract_abstract,
     extract_keywords,
-    extract_practitioner_notes,
     get_front_page,
-    word_count,
 )
-
-# JUTLP's maximum title length. Used to pre-compute word count for the LLM
-# so it doesn't have to count tokens itself (LLMs are unreliable word
-# counters and were flagging short titles as "too long").
-JUTLP_TITLE_WORD_LIMIT = 15
 
 VALID_CATEGORIES = [
     "title_quality",
     "abstract_quality",
-    "practitioner_notes_quality",
     "introduction_quality",
-    "literature_quality",
     "method_quality",
     "results_quality",
     "discussion_quality",
     "conclusion_quality",
     "apa_style",
-    "acknowledgements_quality",
-    "appendices_quality",
+    "references_quality",
+    "tables_figures_quality",
     "general",
 ]
 
 SYSTEM_PROMPT_TEMPLATE = """\
-You are an activist sub-editor / copy editor for the Journal of University \
-Teaching and Learning Practice (JUTLP). You review manuscripts that have \
+You are an APA7 copy editor. You review manuscripts that have \
 ALREADY been accepted for publication after ~8-9 months of peer review, and \
 your job is to surface polish-level improvements for the handling editor to \
 consider — not to re-review the substance of the paper.
@@ -43,7 +33,7 @@ Your output is read by an editor, never shown directly to the author. The \
 editor decides what (if anything) to pass on. Act accordingly: make \
 suggestions, don't issue verdicts.
 
-## JUTLP Editorial Guidelines
+## APA7 Editorial Guidelines
 
 {guidelines}
 
@@ -121,21 +111,14 @@ validator and flagging them here wastes tokens):
   - Missing or extra sections/subsections
   - Section ordering
   - Abstract word count
-  - Number of practitioner notes
   - Number of keywords
   - Missing front page elements (title, authors, affiliations)
   - Forbidden styles (e.g. Guidance Notes)
 - Do NOT check references or citations (handled by a separate reference \
 checker).
 - Do NOT check in-text citation vs reference list matching.
-- Title length: The user prompt shows the exact word count next to the \
-title (e.g. "## Title (11 words; JUTLP limit is 15)"). Do NOT flag the title \
-for length unless the given word count is STRICTLY GREATER THAN the limit. \
-Never claim a title is "too long" when its word count is ≤ the limit. \
-Colon-separated subtitles ("Main Title: Subtitle") are the standard format \
-but a subtitle is NOT required — do NOT flag a title for lacking one. \
-If the title exceeds the limit, propose 1–2 specific shorter alternative \
-titles in the suggestion field.
+- Title length:  APA 7 has no fixed word limit — flag titles only for \
+clarity, title case, or misleading scope
 - Significance statement: If the Introduction section is present, check \
 whether it contains a paragraph that explicitly states the significance or \
 contribution of the study. If this paragraph is absent, flag it as \
@@ -148,7 +131,7 @@ academic equivalents in the suggestion field (e.g. "numerous", "efficient", \
 - Paragraph length/shape: Flag only normal prose paragraphs within a body \
 section (Introduction, Literature, Method, Results, Discussion, Conclusion). \
 Do NOT flag headings, subheadings, table/figure captions, table text, \
-reference entries, practitioner notes, keywords, or other front-page \
+reference entries, keywords, or other front-page \
 elements. Use category "general", note the section, and put the exact \
 offending paragraph excerpt in quote.
 - Suggestion scope: Suggestions are FEEDBACK, not rewrites. Your role is to \
@@ -245,7 +228,7 @@ def _is_pseudo_heading(p: ParagraphRecord) -> bool:
 
 
 def _canonical_section_for(text: str) -> str | None:
-    """Map a heading's text to its canonical JUTLP section name, or None.
+    """Map a heading's text to its canonical APA section name, or None.
 
     Handles canonical names, aliases (``Methodology`` → ``Method``,
     ``Findings`` → ``Results``, ``Literature Review`` → ``Literature``) and
@@ -355,9 +338,9 @@ def _build_system_prompt(
     )
 
     return SYSTEM_PROMPT_TEMPLATE.format(
-        guidelines=JUTLP_GUIDELINES,
+        guidelines=APA7_GUIDELINES,
         categories=categories_str,
-        examples=EDITORIAL_EXAMPLES,
+        examples=APA7_EDITORIAL_EXAMPLES,
         deterministic_results=deterministic_results,
         ref_results=ref_results,
     )
@@ -367,7 +350,7 @@ def _extract_front_page_content(
     paragraphs: list[ParagraphRecord],
 ) -> dict[str, str]:
     """Extract front page content using style-based matching first, then
-    positional fallback for documents that don't use JUTLP template styles."""
+    positional fallback for documents that don't use APA template styles."""
     front = get_front_page(paragraphs)
 
     # Title: try Article Title style, fallback to first non-empty paragraph
@@ -395,7 +378,7 @@ def _extract_front_page_content(
     else:
         # Fallback: find paragraph with text "Abstract" and grab text after it
         # Don't break on Heading 1 — some docs style the abstract body as Heading 1
-        stop_texts = {"practitioner notes", "keywords", "citation", "introduction"}
+        stop_texts = {"keywords", "citation", "introduction"}
         abstract_parts = []
         found_abstract = False
         for p in front:
@@ -408,26 +391,6 @@ def _extract_front_page_content(
             elif p.text.lower() == "abstract":
                 found_abstract = True
         abstract = " ".join(abstract_parts) if abstract_parts else "Not found"
-
-    # Practitioner notes: try style-based, fallback to text after "Practitioner Notes"
-    pn = extract_practitioner_notes(paragraphs)
-    if not pn:
-        pn_texts = []
-        found_pn = False
-        for p in front:
-            if found_pn:
-                if p.is_empty:
-                    continue
-                if p.text.lower() == "keywords":
-                    break
-                if p.style == "Heading 1":
-                    break
-                pn_texts.append(p.text)
-            elif p.text.lower() == "practitioner notes":
-                found_pn = True
-        pn_notes = pn_texts
-    else:
-        pn_notes = [p.text for p in pn]
 
     # Keywords: try style-based extraction, fallback to text after "Keywords"
     keywords = extract_keywords(paragraphs)
@@ -446,7 +409,6 @@ def _extract_front_page_content(
         "title": title,
         "authors": authors,
         "abstract": abstract,
-        "practitioner_notes": pn_notes,
         "keywords": keywords,
     }
 
@@ -470,22 +432,13 @@ def _build_user_prompt(
         # the LLM mis-counted words and falsely flagged titles under 15 words
         # as "too long." Presenting the exact count plus the limit makes the
         # length check a trivial lookup rather than a counting task.
-        title_words = word_count(fp["title"])
-        parts.append(
-            f"## Title ({title_words} words; JUTLP limit is "
-            f"{JUTLP_TITLE_WORD_LIMIT})\n{fp['title']}"
-        )
+        parts.append(f"## Title\n{fp['title']}")
     if fp["authors"] != "Not found":
         parts.append(f"## Authors\n{fp['authors']}")
     if fp["keywords"]:
         parts.append(f"## Keywords\n{', '.join(fp['keywords'])}")
     if fp["abstract"] != "Not found":
         parts.append(f"## Abstract\n{fp['abstract']}")
-    if fp["practitioner_notes"]:
-        notes_text = "\n".join(
-            f"{i + 1}. {text}" for i, text in enumerate(fp["practitioner_notes"])
-        )
-        parts.append(f"## Practitioner Notes\n{notes_text}")
 
     # Main sections — detected by canonical mapping (alias- and titled-heading
     # aware) so a section the validator recognises is never dropped from the
