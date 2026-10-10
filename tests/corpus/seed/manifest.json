@@ -3,47 +3,47 @@
   "documents": [
     {
       "id": "seed-01",
-      "source_url": "",
-      "license": "",
-      "license_status": "",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
       "mode": "student",
       "consent_ref": "",
       "defects_injected": [],
       "verdicts": {},
-      "notes": "APA 7 student paper used as a baseline document."
+      "notes": "Known-good APA 7 student sample paper."
     },
     {
       "id": "seed-02",
-      "source_url": "",
-      "license": "",
-      "license_status": "",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
       "mode": "professional",
       "consent_ref": "",
       "defects_injected": [],
       "verdicts": {},
-      "notes": "Student-written document using APA 7 professional paper formatting."
+      "notes": "Known-good APA 7 professional sample paper."
     },
     {
       "id": "seed-03",
-      "source_url": "",
-      "license": "",
-      "license_status": "",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
       "mode": "student",
       "consent_ref": "",
       "defects_injected": [],
       "verdicts": {},
-      "notes": "APA 7 student paper that includes an abstract and references."
+      "notes": "APA 7 student-format baseline document."
     },
     {
       "id": "seed-04",
-      "source_url": "",
-      "license": "",
-      "license_status": "",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
       "mode": "professional",
       "consent_ref": "",
       "defects_injected": [],
       "verdicts": {},
-      "notes": "Student-written document using professional APA 7 formatting with a table or figure."
+      "notes": "APA 7 professional-format baseline document."
     }
   ]
 }
