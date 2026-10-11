@@ -9,24 +9,18 @@ OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gpt-5.4-mini")
 OPENAI_TEMPERATURE: float = float(os.environ.get("OPENAI_TEMPERATURE", "0.2"))
 OPENAI_MAX_TOKENS: int = int(os.environ.get("OPENAI_MAX_TOKENS", "16384"))
 
-# APA-7 Standard Document Configuration
-APA7_DEFAULT_FONT: str = "Calibri"
-APA7_DEFAULT_FONT_SIZE_PT: int = 11
-APA7_LOCALE: str = "en-AU"
-APA7_CAROUSEL_RETENTION_ENABLED: bool = True
+# --- APA 7 deterministic output defaults (C-15, Track C)
+# >  output_generation_samfix.py now imports these instead of hardcoding
+# > see output_generation_samfix.py line 3793
+ALLOWED_FONTS = {"Calibri", "Arial", "Times New Roman", "Georgia", "Lucida Sans Unicode"}
+DEFAULT_FONT = "Calibri"          # C-27: default, Calibri for body + headings (D2 locked)
+DEFAULT_FONT_SIZE = 11
+HEADING_FONT = "Calibri"
+DEFAULT_MODE = "auto"             # auto-detect student/pro + manual override (D1 locked)
+SPELLING_VARIANT = "AU"           # spelling direction, confirmed AU (D3 locked)
 
-
-# APA-7 Configuration Constants (C-15)
-DEFAULT_FONT: str = "Calibri"
-DEFAULT_FONT_SIZE: int = 11
-HEADING_FONT: str = "Calibri"
-ALLOWED_FONTS: list[str] = ["Calibri", "Arial", "Times New Roman", "Georgia", "Computer Modern"]
-DEFAULT_MODE: str = "apa7"
-SPELLING_VARIANT: str = "American"
-MARGIN_IN: float = 1.0
-DOUBLE_SPACING_TWIPS: int = 480
-FIRST_LINE_INDENT_IN: float = 0.5
-
-# Backward Compatibility Aliases
-APA7_DEFAULT_FONT = DEFAULT_FONT
-APA7_DEFAULT_FONT_SIZE_PT = DEFAULT_FONT_SIZE
+MARGIN_IN = 1.0                   # APA-00: 1" margins all sides
+APA_MARGIN_TWIPS = "1440"         # 1 inch = 1440 twips (used by output passes)
+APA_SPACE_AFTER_TWIPS = "0"       # APA-01: no blank line before/after headings
+DOUBLE_SPACING_TWIPS = "480"      # double spacing = 2.0 * 240
+APA_FIRST_LINE_INDENT_TWIPS = "720"  # APA-04: 0.5" first-line indent = 720 twips

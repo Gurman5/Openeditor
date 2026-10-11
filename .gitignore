@@ -75,3 +75,4 @@ graphify-out/.graphify_root
 graphify-out/cost.json
 graphify-out/graph.js
 .ua/
+AGENTS.md

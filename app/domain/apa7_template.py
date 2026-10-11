@@ -1,8 +1,34 @@
 """
 APA-7 Template Definitions and Formatting Constants.
 Locked Decisions: Calibri 11pt, AU spelling variant, carousel retained.
+
+APA7 Template Definition & Logical Layer (C-10 / C-11)
+
+This module serves as the APA7 successor to `canonical_jultp_template.py`.
+It defines the logical layer and rule structures required by downstream modules,
+while the physical style definitions remain in the `.docx` template read live 
+via `extract_template_styles()`.
+
+Architecture Comparison:
+------------------------
+| Layer          | canonical_jultp_template.py (Legacy)    | apa7_template.py (Intended)                                     |
+|----------------|---------------------------------------------|-----------------------------------------------------------------|
+| Helpers        | strip_leading_section_number,               | Same 3 helpers ported verbatim                                  |
+|                | _normalise_subsection, subsection_alias_match|                                                                 |
+| Structure dict | CANONICAL_STRUCTURE                         | CANONICAL_STRUCTURE_APA7                                        |
+|                | (front page, sections, style_rules,         | (student/prof front page, abstract <= 250 words,                |
+|                | special_rules)                              | Method/Results/Discussion, appendices allowed)                  |
+| Consumers      | 9 modules import from it                    | C-11 ticket repoints those 9 modules here                       |
+
+Development Status:
+-------------------
+The file is currently a placeholder. The remaining C-10 work includes:
+1. Porting the subsection and section-number matching helpers verbatim.
+2. Writing `CANONICAL_STRUCTURE_APA7` (including its corresponding `style_rules` 
+   and `special_rules`) aligned with the `.docx` base template spec.
+3. Executing the C-11 sweep to repoint the consumer modules.
 """
-import re
+# > File is part of C-10-C-11
 
 # Font & Typography Standards
 DEFAULT_FONT_FAMILY = "Calibri"
@@ -13,72 +39,3 @@ DEFAULT_LOCALE = "en-AU"
 
 # Template structure markers
 CAROUSEL_ENABLED = True
-
-# Standard APA-7 Document Structure & Aliases
-APA7_STRUCTURE = {
-    "main_sections": [
-        "Introduction",
-        "Literature",
-        "Method",
-        "Results",
-        "Discussion",
-        "Conclusion",
-        "References",
-    ],
-    "section_aliases": {
-        "Introduction": ["Introduction", "Background"],
-        "Literature": ["Literature Review", "Related Work", "Background"],
-        "Method": ["Methodology", "Research Design", "Methods"],
-        "Results": ["Findings", "Results and Analysis"],
-        "Discussion": ["Discussion and Implications", "General Discussion"],
-        "Conclusion": ["Conclusions", "Concluding Remarks"],
-        "References": ["References", "Reference List", "Bibliography"],
-        "Acknowledgements": ["Acknowledgements", "Acknowledgments"],
-    },
-    "required_subsections": {
-        "Method": ["Participants", "Materials", "Procedure"],
-        "Discussion": ["Implications", "Limitations", "Future Research"],
-    },
-    "front_page": {
-        "abstract_max_words": 250,
-        "abstract_max_lines": 23,
-        "abstract_line_region": (7, 23),
-        "abstract_words_per_line_estimate": 12,
-        "practitioner_notes_count": 3,
-        "keywords_max_count": 5,
-    },
-    "style_rules": {
-        "forbidden_styles": ["Heading 3", "JUTLP Special Style"],
-        "reference_entry": "APA 7 Reference List Entry",
-        "figure_number": "Figure Number",
-        "figure_title": "Figure Title",
-        "table_number": "Table Number",
-        "table_title": "Table Title",
-        "table_text": "Table Text",
-        "quote": "Quote",
-    },
-    "combined_results_discussion_query": "Ensure Results and Discussion appear as separate top-level sections.",
-}
-
-# Aliases and maps expected by heading_corrections and other modules
-CANONICAL_STRUCTURE = APA7_STRUCTURE
-SECTION_RENAME_MAP = {
-    "Literature Review": "Literature",
-    "Related Work": "Literature",
-    "Methodology": "Method",
-    "Methods": "Method",
-    "Findings": "Results",
-    "Conclusions": "Conclusion",
-}
-SUBSECTION_ALIASES = APA7_STRUCTURE["required_subsections"]
-
-def strip_leading_section_number(text: str) -> str:
-    return re.sub(r"^\d+(\.\d+)*\.?\s+", "", text).strip()
-
-def subsection_alias_match(canonical: str, found_list: list[str]) -> bool:
-    c_lower = canonical.strip().lower()
-    for f in found_list:
-        f_clean = strip_leading_section_number(f).strip().lower()
-        if f_clean == c_lower:
-            return True
-    return False
