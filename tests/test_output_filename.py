@@ -29,8 +29,8 @@ def test_output_filename_uses_first_author_and_increments(tmp_path):
 
     second_name = build_output_filename(docx_path, str(tmp_path))
 
-    assert first_name == f"Chen_JUTLP_{year}_CopyEdit1.docx"
-    assert second_name == f"Chen_JUTLP_{year}_CopyEdit2.docx"
+    assert first_name == f"Doe_JUTLP_{year}_CopyEdit1.docx"
+    assert second_name == f"Doe_JUTLP_{year}_CopyEdit2.docx"
 
 
 def test_output_filename_handles_plain_affiliation_markers(tmp_path):

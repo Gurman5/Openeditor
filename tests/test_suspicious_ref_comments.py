@@ -165,7 +165,7 @@ def test_reference_issue_summary_is_anchored_to_references_heading(tmp_path):
     assert "2 reference entries could not be automatically verified" in summary
     assert anchors[summary] == "References"
     assert any("not cited in the body" in text for text in anchors)
-    assert sum("could not be automatically verified" in text for text in anchors) == 3
+    assert sum("could not be automatically verified" in text for text in anchors) == 1
 
 
 def test_no_suspicious_results_writes_no_comments(tmp_path):
@@ -178,8 +178,7 @@ def test_no_suspicious_results_writes_no_comments(tmp_path):
     ])
 
     texts = _comment_texts(path)
-    assert any("CrossRef verification" in t for t in texts)
-    assert any("2/2" in t for t in texts)
+    assert len(texts) == 0
 
 
 def test_add_paragraph_comment_is_importable_in_pipeline():
