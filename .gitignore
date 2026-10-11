@@ -75,3 +75,10 @@ graphify-out/.graphify_root
 graphify-out/cost.json
 graphify-out/graph.js
 .ua/
+
+# Track K corpus documents
+tests/corpus/real/*
+!tests/corpus/real/.gitkeep
+
+tests/corpus/samples/*
+!tests/corpus/samples/.gitkeep
