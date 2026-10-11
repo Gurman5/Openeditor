@@ -2,9 +2,6 @@
 
 This file handles the command-line interface and combines the results
 from the corpus checks.
-
-Some checks currently use direct OOXML values as a temporary fallback.
-Zac's accepted-view and style resolver will be connected later.
 """
 
 from __future__ import annotations
@@ -19,10 +16,24 @@ from typing import Any
 
 from lxml import etree
 
+from tools.corpus.docx_view import accepted_view
+
+from tools.corpus.checks.layout import (
+    CHECKS as LAYOUT_CHECKS,
+    check_layout,
+)
+from tools.corpus.checks.fonts import check_fonts
+from tools.corpus.checks.headings import check_headings
+from tools.corpus.checks.abstract import check_abstract
+from tools.corpus.checks.refs import check_references
+from tools.corpus.checks.preservation import check_preservation
+
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS = {"w": W_NS}
 
+
+# Checks that can be selected from the command line.
 AVAILABLE_CHECKS = (
     "validity",
     "margins",
@@ -30,11 +41,12 @@ AVAILABLE_CHECKS = (
     "align",
     "indent",
     "pagenum",
+    "fonts",
+    "headings",
+    "abstract",
+    "refs",
+    "preservation",
 )
-
-
-def w_attr(name: str) -> str:
-    return f"{{{W_NS}}}{name}"
 
 
 def result(
@@ -43,6 +55,8 @@ def result(
     evidence: str,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Create a result for checks owned by the harness."""
+
     output = {
         "check": check,
         "status": status,
@@ -56,46 +70,18 @@ def result(
 
 
 def parse_xml(data: bytes, part_name: str):
+    """Parse XML and give a useful error if it is invalid."""
+
     try:
         return etree.fromstring(data)
+
     except etree.XMLSyntaxError as exc:
         raise ValueError(
             f"Invalid XML in {part_name}: {exc}"
         ) from exc
 
 
-def read_document_xml(docx_path: Path):
-    with zipfile.ZipFile(docx_path, "r") as archive:
-        if "word/document.xml" not in archive.namelist():
-            raise ValueError("word/document.xml is missing")
-
-        return parse_xml(
-            archive.read("word/document.xml"),
-            "word/document.xml",
-        )
-
-
-def get_body_paragraphs(root):
-    paragraphs = []
-
-    for paragraph in root.xpath(
-        "//w:body//w:p",
-        namespaces=NS,
-    ):
-        text = "".join(
-            paragraph.xpath(
-                ".//w:t/text()",
-                namespaces=NS,
-            )
-        ).strip()
-
-        if text:
-            paragraphs.append(paragraph)
-
-    return paragraphs
-
-
-def check_validity(docx_path: Path):
+def check_validity(docx_path: Path) -> dict[str, Any]:
     """Basic DOCX and XML validity check."""
 
     if not docx_path.exists():
@@ -205,480 +191,131 @@ def check_validity(docx_path: Path):
         )
 
 
-def check_margins(docx_path: Path):
-    """Check that section margins are 1 inch / 1440 twips."""
-
-    try:
-        root = read_document_xml(docx_path)
-    except Exception as exc:
-        return result(
-            "margins",
-            "fail",
-            str(exc),
-        )
-
-    sections = root.xpath(
-        "//w:sectPr",
-        namespaces=NS,
-    )
-
-    if not sections:
-        return result(
-            "margins",
-            "fail",
-            "No section properties were found.",
-        )
-
-    problems = []
-
-    for number, section in enumerate(
-        sections,
-        start=1,
-    ):
-        margins = section.find(
-            "w:pgMar",
-            namespaces=NS,
-        )
-
-        if margins is None:
-            problems.append(
-                {
-                    "section": number,
-                    "problem": "w:pgMar missing",
-                }
-            )
-            continue
-
-        for side in (
-            "top",
-            "bottom",
-            "left",
-            "right",
-        ):
-            actual = margins.get(
-                w_attr(side)
-            )
-
-            if actual != "1440":
-                problems.append(
-                    {
-                        "section": number,
-                        "side": side,
-                        "expected": "1440",
-                        "actual": actual,
-                    }
-                )
-
-    if problems:
-        return result(
-            "margins",
-            "fail",
-            "One or more margins are not 1440 twips.",
-            {
-                "mode": "direct-ooxml",
-                "problems": problems,
-            },
-        )
-
-    return result(
-        "margins",
-        "pass",
-        f"All {len(sections)} section(s) use 1440 twip margins.",
-        {
-            "mode": "direct-ooxml",
-        },
-    )
-
-
-def check_spacing(docx_path: Path):
-    """Temporary direct-only double-spacing check."""
-
-    try:
-        root = read_document_xml(docx_path)
-    except Exception as exc:
-        return result(
-            "spacing",
-            "fail",
-            str(exc),
-        )
-
-    paragraphs = get_body_paragraphs(root)
-
-    checked = 0
-    problems = []
-
-    for number, paragraph in enumerate(
-        paragraphs,
-        start=1,
-    ):
-        spacing = paragraph.find(
-            "./w:pPr/w:spacing",
-            namespaces=NS,
-        )
-
-        if spacing is None:
-            continue
-
-        line = spacing.get(
-            w_attr("line")
-        )
-
-        line_rule = spacing.get(
-            w_attr("lineRule")
-        )
-
-        if line is None:
-            continue
-
-        checked += 1
-
-        if (
-            line != "480"
-            or line_rule not in (None, "auto")
-        ):
-            problems.append(
-                {
-                    "paragraph": number,
-                    "expected_line": "480",
-                    "actual_line": line,
-                    "line_rule": line_rule,
-                }
-            )
-
-    if problems:
-        return result(
-            "spacing",
-            "fail",
-            "Incorrect direct paragraph spacing was found.",
-            {
-                "mode": "direct-only",
-                "problems": problems,
-            },
-        )
-
-    if checked == 0:
-        return result(
-            "spacing",
-            "na",
-            (
-                "No direct spacing values were found. "
-                "The style resolver is needed for inherited spacing."
-            ),
-            {
-                "mode": "direct-only",
-            },
-        )
-
-    return result(
-        "spacing",
-        "pass",
-        f"{checked} direct spacing value(s) use line=480.",
-        {
-            "mode": "direct-only",
-        },
-    )
-
-
-def check_alignment(docx_path: Path):
-    """Check for directly justified body paragraphs."""
-
-    try:
-        root = read_document_xml(docx_path)
-    except Exception as exc:
-        return result(
-            "align",
-            "fail",
-            str(exc),
-        )
-
-    paragraphs = get_body_paragraphs(root)
-
-    problems = []
-
-    for number, paragraph in enumerate(
-        paragraphs,
-        start=1,
-    ):
-        alignment = paragraph.find(
-            "./w:pPr/w:jc",
-            namespaces=NS,
-        )
-
-        if alignment is None:
-            continue
-
-        value = alignment.get(
-            w_attr("val")
-        )
-
-        if value == "both":
-            problems.append(
-                {
-                    "paragraph": number,
-                    "actual": value,
-                }
-            )
-
-    if problems:
-        return result(
-            "align",
-            "fail",
-            "Justified body paragraph(s) were found.",
-            {
-                "mode": "direct-only",
-                "problems": problems,
-            },
-        )
-
-    return result(
-        "align",
-        "pass",
-        "No directly justified body paragraphs were found.",
-        {
-            "mode": "direct-only",
-            "note": (
-                "Inherited alignment will be checked "
-                "with the style resolver later."
-            ),
-        },
-    )
-
-
-def check_indent(docx_path: Path):
-    """Temporary direct-only first-line indent check."""
-
-    try:
-        root = read_document_xml(docx_path)
-    except Exception as exc:
-        return result(
-            "indent",
-            "fail",
-            str(exc),
-        )
-
-    paragraphs = get_body_paragraphs(root)
-
-    checked = 0
-    problems = []
-
-    for number, paragraph in enumerate(
-        paragraphs,
-        start=1,
-    ):
-        indent = paragraph.find(
-            "./w:pPr/w:ind",
-            namespaces=NS,
-        )
-
-        if indent is None:
-            continue
-
-        first_line = indent.get(
-            w_attr("firstLine")
-        )
-
-        if first_line is None:
-            continue
-
-        checked += 1
-
-        if first_line != "720":
-            problems.append(
-                {
-                    "paragraph": number,
-                    "expected": "720",
-                    "actual": first_line,
-                }
-            )
-
-    if problems:
-        return result(
-            "indent",
-            "fail",
-            "Incorrect direct first-line indentation was found.",
-            {
-                "mode": "direct-only",
-                "problems": problems,
-            },
-        )
-
-    if checked == 0:
-        return result(
-            "indent",
-            "na",
-            (
-                "No direct first-line indent values were found. "
-                "The style resolver is needed for inherited indentation."
-            ),
-            {
-                "mode": "direct-only",
-            },
-        )
-
-    return result(
-        "indent",
-        "pass",
-        f"{checked} first-line indent value(s) use 720 twips.",
-        {
-            "mode": "direct-only",
-        },
-    )
-
-
-def check_page_number(docx_path: Path):
-    """Look for a PAGE field in DOCX header XML."""
-
-    if not zipfile.is_zipfile(docx_path):
-        return result(
-            "pagenum",
-            "fail",
-            "File is not a valid DOCX/ZIP file.",
-        )
-
-    try:
-        with zipfile.ZipFile(
-            docx_path,
-            "r",
-        ) as archive:
-
-            headers = sorted(
-                name
-                for name in archive.namelist()
-                if name.startswith("word/header")
-                and name.endswith(".xml")
-            )
-
-            if not headers:
-                return result(
-                    "pagenum",
-                    "fail",
-                    "No header XML files were found.",
-                )
-
-            matches = []
-
-            for header_name in headers:
-                root = parse_xml(
-                    archive.read(header_name),
-                    header_name,
-                )
-
-                # Simple PAGE fields
-                fields = root.xpath(
-                    ".//w:fldSimple",
-                    namespaces=NS,
-                )
-
-                for field in fields:
-                    instruction = field.get(
-                        w_attr("instr"),
-                        "",
-                    )
-
-                    if "PAGE" in instruction.upper():
-                        matches.append(
-                            f"{header_name}: fldSimple PAGE"
-                        )
-
-                # PAGE fields made from fldChar/instrText runs
-                instructions = " ".join(
-                    root.xpath(
-                        ".//w:instrText/text()",
-                        namespaces=NS,
-                    )
-                )
-
-                if "PAGE" in instructions.upper():
-                    matches.append(
-                        f"{header_name}: instrText PAGE"
-                    )
-
-            if not matches:
-                return result(
-                    "pagenum",
-                    "fail",
-                    "No PAGE field was found in the headers.",
-                    {
-                        "headers_checked": headers,
-                    },
-                )
-
-            return result(
-                "pagenum",
-                "pass",
-                "A PAGE field was found in a header.",
-                {
-                    "matches": matches,
-                },
-            )
-
-    except Exception as exc:
-        return result(
-            "pagenum",
-            "fail",
-            str(exc),
-        )
-
-
-CHECK_FUNCTIONS = {
-    "validity": check_validity,
-    "margins": check_margins,
-    "spacing": check_spacing,
-    "align": check_alignment,
-    "indent": check_indent,
-    "pagenum": check_page_number,
-}
-
-
-def accepted_view_status(docx_path: Path):
-    """
-    Connect to Zac's docx_view module when it is available.
-
-    This does not implement Zac's accepted-view logic here.
-    """
-
-    try:
-        from tools.corpus.docx_view import accepted_view
-    except ImportError:
-        return {
-            "available": False,
-            "note": (
-                "tools.corpus.docx_view is not available yet."
-            ),
-        }
-
-    try:
-        view = accepted_view(docx_path)
-
-        return {
-            "available": True,
-            "result_type": type(view).__name__,
-        }
-
-    except Exception as exc:
-        return {
-            "available": True,
-            "error": str(exc),
-        }
-
-
 def run_harness(
     docx_path: Path,
     selected_checks: list[str],
-):
-    check_results = {}
+    *,
+    input_docx: Path | None = None,
+    check_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the selected corpus checks and combine their results."""
 
-    for name in selected_checks:
-        check_results[name] = CHECK_FUNCTIONS[name](
-            docx_path
+    check_results: dict[str, Any] = {}
+
+    if check_options is None:
+        check_options = {}
+
+    # Validity is owned by harness.py and can run before AcceptedView.
+    if "validity" in selected_checks:
+        validity = check_validity(docx_path)
+        check_results["validity"] = validity
+
+        # Stop here if the file itself is invalid.
+        if validity["status"] == "fail":
+            return {
+                "schema_version": 1,
+                "document": str(docx_path),
+                "accepted_view": {
+                    "available": False,
+                    "reason": "validity check failed",
+                },
+                "checks": check_results,
+            }
+
+    # All resolver-based checks use the same accepted view.
+    try:
+        view = accepted_view(docx_path)
+
+    except Exception as exc:
+        return {
+            "schema_version": 1,
+            "document": str(docx_path),
+            "accepted_view": {
+                "available": False,
+                "error": str(exc),
+            },
+            "checks": check_results,
+        }
+
+    # APA-00, APA-01, APA-03, APA-04 and APA-05.
+    layout_names = [
+        name
+        for name in selected_checks
+        if name in LAYOUT_CHECKS
+    ]
+
+    if layout_names:
+        check_results.update(
+            check_layout(
+                view,
+                checks=layout_names,
+            )
         )
+
+    # APA-02.
+    if "fonts" in selected_checks:
+        font_result = check_fonts(view)
+
+        check_results[
+            font_result["matrix_id"]
+        ] = font_result
+
+    # APA-10 and APA-11.
+    if "headings" in selected_checks:
+        check_results.update(
+            check_headings(view)
+        )
+
+    # APA-08 and APA-09.
+    if "abstract" in selected_checks:
+        abstract_options = check_options.get(
+            "APA-08",
+            {},
+        )
+
+        require_abstract = bool(
+            abstract_options.get(
+                "require_abstract",
+                False,
+            )
+        )
+
+        check_results.update(
+            check_abstract(
+                view,
+                require_abstract=require_abstract,
+            )
+        )
+
+    # APA-12 and APA-18.
+    if "refs" in selected_checks:
+        check_results.update(
+            check_references(view)
+        )
+
+    # K-H9 preservation hard flag.
+    if "preservation" in selected_checks:
+        if input_docx is None:
+            raise ValueError(
+                "preservation check requires input_docx"
+            )
+
+        preservation_result = check_preservation(
+            docx_path,
+            input_docx,
+        )
+
+        check_results[
+            "preservation"
+        ] = preservation_result
 
     return {
         "schema_version": 1,
         "document": str(docx_path),
-        "accepted_view": accepted_view_status(
-            docx_path
-        ),
+        "accepted_view": {
+            "available": True,
+            "result_type": type(view).__name__,
+        },
         "checks": check_results,
     }
 
@@ -686,10 +323,13 @@ def run_harness(
 def write_report(
     report: dict[str, Any],
     output: str,
-):
+) -> None:
+    """Write the harness report to stdout or a JSON file."""
+
     rendered = json.dumps(
         report,
         indent=2,
+        ensure_ascii=False,
     )
 
     if output == "-":
@@ -713,7 +353,9 @@ def write_report(
     )
 
 
-def parse_checks(value: str):
+def parse_checks(value: str) -> list[str]:
+    """Parse the comma-separated --checks argument."""
+
     checks = [
         item.strip().lower()
         for item in value.split(",")
@@ -723,7 +365,7 @@ def parse_checks(value: str):
     unknown = [
         item
         for item in checks
-        if item not in CHECK_FUNCTIONS
+        if item not in AVAILABLE_CHECKS
     ]
 
     if unknown:
@@ -735,7 +377,20 @@ def parse_checks(value: str):
     return checks
 
 
-def main():
+def report_has_failure(report: dict[str, Any]) -> bool:
+    """Return True if any harness result failed."""
+
+    for item in report["checks"].values():
+        if (
+            isinstance(item, dict)
+            and item.get("status") == "fail"
+        ):
+            return True
+
+    return False
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Run Track K conformance checks "
@@ -746,7 +401,18 @@ def main():
     parser.add_argument(
         "--docx",
         required=True,
-        help="DOCX file to check.",
+        help=(
+            "DOCX file to check. For preservation this is "
+            "the engine output DOCX."
+        ),
+    )
+
+    parser.add_argument(
+        "--input",
+        help=(
+            "Original input DOCX. Required when "
+            "running the preservation check."
+        ),
     )
 
     group = parser.add_mutually_exclusive_group(
@@ -758,14 +424,27 @@ def main():
         type=parse_checks,
         help=(
             "Comma-separated checks, for example "
-            "margins,spacing,align,indent,pagenum"
+            "margins,spacing,align,indent,pagenum,"
+            "fonts,headings,abstract,refs"
         ),
     )
 
     group.add_argument(
         "--all",
         action="store_true",
-        help="Run all currently available checks.",
+        help=(
+            "Run all available document checks. "
+            "Preservation is also run when --input is supplied."
+        ),
+    )
+
+    parser.add_argument(
+        "--require-abstract",
+        action="store_true",
+        help=(
+            "A missing abstract fails APA-08 "
+            "instead of returning na."
+        ),
     )
 
     parser.add_argument(
@@ -781,16 +460,50 @@ def main():
 
     docx_path = Path(args.docx)
 
+    input_docx = (
+        Path(args.input)
+        if args.input
+        else None
+    )
+
     if args.all:
-        selected_checks = list(
-            AVAILABLE_CHECKS
-        )
+        # --all can still be used on a single document.
+        # Preservation needs both an input and output file.
+        selected_checks = [
+            name
+            for name in AVAILABLE_CHECKS
+            if name != "preservation"
+        ]
+
+        if input_docx is not None:
+            selected_checks.append(
+                "preservation"
+            )
+
     else:
         selected_checks = args.checks
+
+    if (
+        "preservation" in selected_checks
+        and input_docx is None
+    ):
+        parser.error(
+            "--input is required when running "
+            "the preservation check"
+        )
+
+    check_options: dict[str, Any] = {}
+
+    if args.require_abstract:
+        check_options["APA-08"] = {
+            "require_abstract": True,
+        }
 
     report = run_harness(
         docx_path,
         selected_checks,
+        input_docx=input_docx,
+        check_options=check_options,
     )
 
     write_report(
@@ -798,13 +511,7 @@ def main():
         args.out,
     )
 
-    statuses = {
-        item["status"]
-        for item
-        in report["checks"].values()
-    }
-
-    if "fail" in statuses:
+    if report_has_failure(report):
         return 1
 
     return 0
