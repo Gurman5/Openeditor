@@ -39,3 +39,25 @@ DEFAULT_LOCALE = "en-AU"
 
 # Template structure markers
 CAROUSEL_ENABLED = True
+
+# Temporary robust bridge for C-10/C-11 WIP placeholder state
+try:
+    from app.domain.canonical_jultp_template import (
+        CANONICAL_STRUCTURE as _LEGACY_STRUCTURE,
+        strip_leading_section_number,
+        _normalise_subsection,
+        subsection_alias_match,
+        SECTION_RENAME_MAP as _LEGACY_SECTION_RENAME_MAP,
+    )
+    CANONICAL_STRUCTURE = _LEGACY_STRUCTURE
+    CANONICAL_STRUCTURE_APA7 = _LEGACY_STRUCTURE
+    APA7_STRUCTURE = _LEGACY_STRUCTURE
+    SECTION_RENAME_MAP = _LEGACY_SECTION_RENAME_MAP
+except ImportError:
+    CANONICAL_STRUCTURE = {}
+    CANONICAL_STRUCTURE_APA7 = {}
+    APA7_STRUCTURE = {}
+    SECTION_RENAME_MAP = {}
+    def strip_leading_section_number(text: str) -> str: return text
+    def _normalise_subsection(text: str) -> str: return text
+    def subsection_alias_match(s1: str, s2: str) -> bool: return s1 == s2
