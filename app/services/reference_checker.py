@@ -492,7 +492,11 @@ def extract_references(docx_path: str) -> list[str]:
         # References heading and before the next Heading-1. Appendix content
         # (which JUTLP doesn't allow but some papers include) is excluded.
         window = [p for p in paragraphs if start < p.index < end]
-        return _select_reference_entries(window)
+        refs = _select_reference_entries(window)
+        if refs:
+            return refs
+        # Fallback capturing all non-empty text lines in the reference window
+        return [p.text for p in window if not p.is_empty and p.text.strip()]
 
     # No References heading anywhere → preserve the historical doc-wide style
     # collection so papers with reference entries but a missing/mis-styled
