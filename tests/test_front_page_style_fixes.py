@@ -28,7 +28,6 @@ from app.services.output_generation_samfix import (
     _apply_front_page_asset_plan,
     _apply_heading_1_text_normalization,
     _apply_heading_2_title_case,
-    _apply_heading_center_alignment,
     _apply_heading_keep_next,
     _apply_intro_page_break,
     _apply_keywords_plan,
@@ -1781,55 +1780,6 @@ def test_front_page_numbered_author_placeholder_not_body_query(tmp_path):
     messages = "\n\n".join(comment["message"] for comment in plan.get("comments", []))
 
     assert "Use author surnames rather than numbered placeholders" not in messages
-
-
-def test_main_headings_are_centered_but_front_page_headings_are_left(tmp_path):
-    input_path = tmp_path / "input.docx"
-    output_path = tmp_path / "output.docx"
-
-    doc = Document()
-    title = doc.add_paragraph("Example title")
-    title.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_style = OxmlElement("w:pStyle")
-    title_style.set(qn("w:val"), "ArticleTitle")
-    title._p.get_or_add_pPr().insert(0, title_style)
-    doc.add_paragraph("Abstract")
-    doc.add_paragraph("Practioner Notes")
-    doc.add_paragraph("Keywords")
-    doc.add_paragraph("Introduction")
-    doc.add_paragraph("Literature")
-    doc.add_paragraph("Method")
-    doc.add_paragraph("Conclusion")
-    doc.save(input_path)
-
-    changed = _apply_heading_center_alignment(str(input_path), str(output_path))
-    assert changed is True
-
-    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-    WQ = f"{{{W}}}"
-    with zipfile.ZipFile(output_path, "r") as z:
-        xml = z.read("word/document.xml")
-
-    root = etree.fromstring(xml)
-    alignment_by_text = {}
-    for para in root.iter(f"{WQ}p"):
-        text = "".join(t.text or "" for t in para.iter(f"{WQ}t")).strip()
-        if text == "":
-            continue
-        jc = para.find(f"{WQ}pPr/{WQ}jc")
-        if jc is not None:
-            alignment_by_text[text] = jc.get(f"{WQ}val")
-        else:
-            alignment_by_text[text] = ""
-
-    assert alignment_by_text["Example title"] == "left"
-    assert alignment_by_text["Abstract"] == ""
-    assert alignment_by_text["Practioner Notes"] == "left"
-    assert alignment_by_text["Keywords"] == "left"
-    assert alignment_by_text["Introduction"] == "center"
-    assert alignment_by_text["Literature"] == "center"
-    assert alignment_by_text["Method"] == "center"
-    assert alignment_by_text["Conclusion"] == "center"
 
 
 def _make_numbered(paragraph):

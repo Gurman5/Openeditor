@@ -369,9 +369,6 @@ AUTHORS_REQUIRED_STYLE = _resolve_style_name("Authors")
 AFFILIATIONS_REQUIRED_STYLE = _resolve_style_name("Author Affiliations")
 REFERENCE_ENTRY_REQUIRED_STYLE = _resolve_style_name("APA 7 Reference List Entry")
 TITLE_REQUIRED_STYLE_ID = _resolve_style_id(TITLE_REQUIRED_STYLE)
-TITLE_LEFT_ALIGNED_STYLE_IDS = frozenset({
-    "Article Title", "ArticleTitle", TITLE_REQUIRED_STYLE, TITLE_REQUIRED_STYLE_ID,
-})
 AUTHORS_REQUIRED_STYLE_ID = _resolve_style_id(AUTHORS_REQUIRED_STYLE)
 AFFILIATIONS_REQUIRED_STYLE_ID = _resolve_style_id(AFFILIATIONS_REQUIRED_STYLE)
 DEFAULT_AUTHORS_LINE = "First Author^a, Second Author^a, and Third Author^b"
@@ -380,6 +377,13 @@ REFERENCE_ENTRY_REQUIRED_STYLE_ID = _resolve_style_id(REFERENCE_ENTRY_REQUIRED_S
 HEADING_1_STYLE_ID = _resolve_style_id("Heading 1")
 HEADING_2_STYLE_ID = _resolve_style_id("Heading 2")
 HEADING_3_STYLE_ID = _resolve_style_id("Heading 3")
+HEADING_4_STYLE_ID = _resolve_style_id("Heading 4")
+HEADING_5_STYLE_ID = _resolve_style_id("Heading 5")
+#> C-23 / APA-11: the five APA heading levels, in template style-name form so
+#> they can be copied straight out of the APA base .docx into an output doc.
+APA_HEADING_STYLE_NAMES = [
+    "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading 5",
+]
 TABLE_NUMBER_STYLE_ID = _resolve_style_id("Table Number")
 TABLE_TITLE_STYLE_ID = _resolve_style_id("Table Title")
 TABLE_GRID_STYLE_ID = _resolve_style_id("Table Grid")
@@ -407,11 +411,16 @@ FIGURE_NUMBER_STYLE = _resolve_style_name("Figure Number", ["Figure/Table Number
 FIGURE_TITLE_STYLE = _resolve_style_name("Figure Title", ["Figure/Table Title"])
 FIGURE_NUMBER_STYLE_ID = _resolve_style_id(FIGURE_NUMBER_STYLE)
 FIGURE_TITLE_STYLE_ID = _resolve_style_id(FIGURE_TITLE_STYLE)
-HEADING_KEEP_NEXT_STYLE_IDS = frozenset({
-    "Heading 1", "Heading 2", "Heading 3",
-    "Heading1", "Heading2", "Heading3",
+APA_HEADING_STYLE_IDS = frozenset({
+    "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading 5",
+    "Heading1", "Heading2", "Heading3", "Heading4", "Heading5",
     HEADING_1_STYLE_ID, HEADING_2_STYLE_ID, HEADING_3_STYLE_ID,
+    HEADING_4_STYLE_ID, HEADING_5_STYLE_ID,
 })
+#> C-23: keepNext is an APA-11 requirement (heading must not be orphaned from
+#> its first body paragraph), so the keepNext pass covers exactly the same
+#> five heading levels the style pass governs.
+HEADING_KEEP_NEXT_STYLE_IDS = APA_HEADING_STYLE_IDS
 TITLE_MAX_LINES = 2
 TITLE_MAX_WORDS = 15
 
@@ -3865,26 +3874,6 @@ def _all_alias_norms(canonical_label):
         aliases.add(_normalise_heading_for_match(alias))
     return aliases
 
-CENTER_ALIGNED_HEADING_TEXTS = [
-    "introduction",
-    "literature",
-    "literature review",
-    "method",
-    "methods",
-    "results",
-    "discussion",
-    "conclusion",
-    "conclusions",
-    "acknowledgements",
-    "acknowledgments",
-]
-
-LEFT_ALIGNED_HEADING_TEXTS = [
-    "practioner notes",
-    "practitioner notes",
-    "keywords",
-]
-
 INLINE_QUOTE_MAX_WORDS = 40
 DOT_POINT_PATTERN = re.compile(r"^\s*(?:•|◦|○|●|▪|▫|·|\*|-)\s+\S")
 QUOTE_MARK_PATTERN = re.compile(r'["“”]')
@@ -6096,8 +6085,9 @@ def _apply_title_text_tracked_changes(para_el, old_text, new_text):
 # body formatting it carried, otherwise the heading renders at body size.
 _HEADING_STYLE_IDS_FOR_RESTYLE = frozenset({
     HEADING_1_STYLE_ID, HEADING_2_STYLE_ID, HEADING_3_STYLE_ID,
-    "Heading1", "Heading2", "Heading3",
-    "Heading 1", "Heading 2", "Heading 3",
+    HEADING_4_STYLE_ID, HEADING_5_STYLE_ID,
+    "Heading1", "Heading2", "Heading3", "Heading4", "Heading5",
+    "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading 5",
 })
 
 
@@ -8610,94 +8600,30 @@ def _apply_document_body_plan(input_path, output_path, body_plan):
     return applied_any
 
 
-def _heading_should_be_centered(text):
-    clean = _normalise_heading_text(text)
-    clean = clean.rstrip(":.")
+def _strip_heading_direct_jc(input_path, output_path):
+    """Drop a direct ``w:jc`` from Heading 1-5 paragraphs.
 
-    for heading_text in CENTER_ALIGNED_HEADING_TEXTS:
-        if clean == heading_text:
-            return True
-
-    return False
-
-
-def _heading_should_be_left_aligned(text):
-    clean = _normalise_heading_text(text)
-    clean = clean.rstrip(":.")
-
-    for heading_text in LEFT_ALIGNED_HEADING_TEXTS:
-        if clean == heading_text:
-            return True
-
-    return False
-
-
-def _read_direct_paragraph_alignment(para_element):
-    p_pr = para_element.find(f"{WQ}pPr")
-    if p_pr is None:
-        return ""
-
-    jc = p_pr.find(f"{WQ}jc")
-    if jc is None:
-        return ""
-
-    value = jc.get(f"{WQ}val", "")
-    if value is None:
-        return ""
-
-    return value
-
-
-def _style_already_centres_heading(style_name):
-    if style_name == HEADING_1_STYLE_ID:
-        return True
-    if style_name == "Heading1":
-        return True
-    if style_name == "ReferencesHeading":
-        return True
-    return False
-
-
-#align headings that have a journal-specific alignment rule
-def _apply_heading_center_alignment(input_path, output_path):
+    > C-23 / APA-11: paragraph-level alignment beats the style, so a leftover
+    > ``jc=center`` on a Level 2 heading would render flush-centred even though
+    > the style now says flush-left. Removing it hands alignment back to the
+    > heading style, which is the single source of truth for each level.
+    """
     doc_root, body_paras = _load_body_paras_raw(input_path)
     changed = False
 
     for para_element in body_paras:
-        text = _raw_paragraph_text(para_element)
-        style_name = _read_raw_paragraph_style_name(para_element)
-        if _heading_should_be_left_aligned(text) is True or style_name in TITLE_LEFT_ALIGNED_STYLE_IDS:
-            direct_alignment = _read_direct_paragraph_alignment(para_element)
-            if direct_alignment == "left":
-                continue
-
-            p_pr = para_element.find(f"{WQ}pPr")
-            if p_pr is None:
-                p_pr = etree.Element(f"{WQ}pPr")
-                para_element.insert(0, p_pr)
-
-            jc = _find_or_make_child(p_pr, f"{WQ}jc")
-            jc.set(f"{WQ}val", "left")
-            changed = True
-            continue
-
-        if _heading_should_be_centered(text) is False:
-            continue
-
-        direct_alignment = _read_direct_paragraph_alignment(para_element)
-        if direct_alignment == "center":
-            continue
-
-        if direct_alignment == "" and _style_already_centres_heading(style_name) is True:
+        if _read_raw_paragraph_style_name(para_element) not in APA_HEADING_STYLE_IDS:
             continue
 
         p_pr = para_element.find(f"{WQ}pPr")
         if p_pr is None:
-            p_pr = etree.Element(f"{WQ}pPr")
-            para_element.insert(0, p_pr)
+            continue
 
-        jc = _find_or_make_child(p_pr, f"{WQ}jc")
-        jc.set(f"{WQ}val", "center")
+        jc = p_pr.find(f"{WQ}jc")
+        if jc is None:
+            continue
+
+        p_pr.remove(jc)
         changed = True
 
     if changed is False:
@@ -8706,6 +8632,39 @@ def _apply_heading_center_alignment(input_path, output_path):
     new_doc_xml = etree.tostring(doc_root, xml_declaration=True, encoding="UTF-8", standalone=True)
     _save_doc_xml_to_zip(input_path, output_path, new_doc_xml)
     return True
+
+
+#APA heading levels 1-5 (APA-11)
+def _apply_apa_heading_styles(input_path, output_path):
+    """Copy the APA base Heading 1-5 styles into the output and clear overrides.
+
+    Two halves:
+
+    1. **Styles.** The APA base ``.docx`` already carries APA-11 definitions
+       (L1 centred bold, L2 flush-left bold, L3 flush-left bold-italic, L4
+       indented bold, L5 indented bold-italic; all Calibri, ``line=480``,
+       ``after=0``, ``keepNext``). Those are pushed onto the output document
+       with ``replace_existing=True`` so an input carrying JUTLP/Word-default
+       heading definitions cannot survive.
+    2. **Overrides.** Direct ``w:jc`` on a heading paragraph is stripped so the
+       style governs.
+
+    This replaces the old ``CENTER_ALIGNED_HEADING_TEXTS`` policy, which
+    guessed a heading's level from its *text* and wrote a paragraph-level
+    alignment per match. Text matching cannot tell Level 1 from Level 2, so it
+    centred every listed section heading regardless of level.
+    """
+    styles_applied = _ensure_template_styles_available(
+        input_path,
+        output_path,
+        APA_HEADING_STYLE_NAMES,
+        replace_existing=True,
+    )
+
+    source = output_path if styles_applied else input_path
+    jc_stripped = _strip_heading_direct_jc(source, output_path)
+
+    return styles_applied or jc_stripped
 
 
 def _ensure_ppr_child(p_pr, tag):
@@ -9837,6 +9796,13 @@ def build_edited_document(input_path, output_path=None):
         current_input_path = output_path
         applied_any = True
 
+    # C-23 / APA-11: restyle Heading 1-5 from the APA base before C-28 rewrites
+    # heading text, so the heading C-28 creates is already APA-styled.
+    heading_styles_applied = _apply_apa_heading_styles(current_input_path, output_path)
+    if heading_styles_applied is True:
+        current_input_path = output_path
+        applied_any = True
+
     heading_1_text_normalization_applied = _apply_heading_1_text_normalization(
         current_input_path, output_path
     )
@@ -9929,11 +9895,6 @@ def build_edited_document(input_path, output_path=None):
         current_input_path = output_path
         applied_any = True
 
-    heading_alignment_applied = _apply_heading_center_alignment(current_input_path, output_path)
-    if heading_alignment_applied is True:
-        current_input_path = output_path
-        applied_any = True
-
     heading_keep_next_applied = _apply_heading_keep_next(current_input_path, output_path)
     if heading_keep_next_applied is True:
         current_input_path = output_path
@@ -10023,7 +9984,7 @@ def build_edited_document(input_path, output_path=None):
         "intro_page_break_applied": intro_page_break_applied,
         "heading_1_text_normalization_applied": heading_1_text_normalization_applied,
         "normal_style_applied": normal_style_applied,
-        "heading_alignment_applied": heading_alignment_applied,
+        "heading_styles_applied": heading_styles_applied,
         "heading_keep_next_applied": heading_keep_next_applied,
         "heading_corrections": heading_corrections,
         "table_formatting_applied": table_formatting_applied,
