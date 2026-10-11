@@ -4,10 +4,13 @@ The base is always the K-0.3a synthetic fixture.
 Run:  python -m pytest tests/corpus/test_inject.py -v
 """
 
+import copy
 import json
 
 import pytest
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_BREAK
 
 from tools.corpus.checks.abstract import check_abstract
 from tools.corpus.checks.fonts import check_fonts
@@ -41,7 +44,8 @@ def _changed(before: dict, after: dict) -> set:
 def test_registry_comes_from_format_defects():
     from tools.corpus.defects.format_defects import FORMAT_RECIPES
     assert set(RECIPES) == {"APA-03", "APA-00", "APA-01", "APA-04", "APA-02a", "APA-02b",
-                            "APA-05", "APA-11a", "APA-11b", "APA-08a", "APA-08b", "APA-08c"}
+                            "APA-05", "APA-11a", "APA-11b", "APA-08a", "APA-08b", "APA-08c",
+                            "APA-12a", "APA-12b", "APA-12c", "APA-18a"}
     assert RECIPES["APA-03"] is FORMAT_RECIPES["APA-03"]
     assert {RECIPES[r].matrix_id for r in ("APA-02a", "APA-02b")} == {"APA-02"}
 
@@ -241,6 +245,95 @@ def test_missing_abstract_declares_its_side_effect(base, tmp_path):
     assert check_abstract(accepted_view(out), require_abstract=True)["APA-08"]["status"] == "fail"
     # Nothing else changes besides the two declared rows.
     assert _changed(all_statuses(base), all_statuses(out)) == {"APA-08", "APA-09"}
+
+
+# ---------------- K-I3b reference recipes ----------------
+
+@pytest.mark.parametrize("recipe, row", [
+    ("APA-12a", "APA-12"),
+    ("APA-12b", "APA-12"),
+    ("APA-12c", "APA-12"),
+    ("APA-18a", "APA-18"),
+])
+def test_k_i3b_recipe_breaks_exactly_its_row(base, tmp_path, recipe, row):
+    out = tmp_path / f"{recipe}.docx"
+    result = inject(base, [recipe], out)
+    after = all_statuses(out)
+    assert after[row] == "fail"
+    assert _changed(all_statuses(base), after) == {row}
+    assert result["verdicts"] == {row: "fail"}
+
+
+def _references_label(doc):
+    return next(p for p in doc.paragraphs if p.text == "References")
+
+
+def _paragraph_before(doc, para):
+    elements = [p._p for p in doc.paragraphs]
+    return doc.paragraphs[elements.index(para._p) - 1]
+
+
+def _break_in_previous_run(doc):
+    label = _references_label(doc)
+    label.paragraph_format.page_break_before = None
+    _paragraph_before(doc, label).add_run().add_break(WD_BREAK.PAGE)
+
+
+def _break_from_style(doc):
+    style = doc.styles.add_style("NewPageLabel", WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style = doc.styles["Normal"]
+    style.paragraph_format.page_break_before = True
+    label = _references_label(doc)
+    label.style = style
+    label.paragraph_format.page_break_before = None
+
+
+def _section_break_before(doc):
+    label = _references_label(doc)
+    label.paragraph_format.page_break_before = None
+    sect = copy.deepcopy(doc.sections[-1]._sectPr)        # a full, valid section
+    _paragraph_before(doc, label)._p.get_or_add_pPr().append(sect)
+
+
+def _two_breaks(doc):
+    _paragraph_before(doc, _references_label(doc)).add_run().add_break(WD_BREAK.PAGE)
+
+
+@pytest.mark.parametrize("setup, removed", [
+    (_break_in_previous_run, ["page break in run"]),
+    (_break_from_style, ["pageBreakBefore from style:NewPageLabel switched off"]),
+    (_section_break_before, ["section break made continuous"]),
+    (_two_breaks, ["direct pageBreakBefore removed", "page break in run"]),
+])
+def test_same_page_recipe_removes_every_kind_of_break(base, tmp_path, setup, removed):
+    doc = Document(base)
+    setup(doc)
+    doc.save(base)
+    before = all_statuses(base)
+    assert before["APA-12"] == "pass"
+
+    out = tmp_path / "same_page.docx"
+    row = inject(base, ["APA-12a"], out)
+    assert [r["what"] for r in row["injections"][0]["removed"]] == removed
+    new_page = check_references(accepted_view(out))["APA-12"]["subchecks"]["new_page"]
+    assert new_page["status"] == "fail"
+    assert _changed(before, all_statuses(out)) == {"APA-12"}
+
+
+def test_out_of_order_recipe_moves_first_entry_last(base, tmp_path):
+    out = tmp_path / "order.docx"
+    row = inject(base, ["APA-12c"], out)
+    assert row["injections"][0]["moved_entry"].startswith("Adams")
+    problems = check_references(accepted_view(out))["APA-12"]["subchecks"]["alphabetical"]["problems"]
+    assert problems[0]["keys"] == ["davis", "adams"]
+
+
+def test_old_doi_recipe_follows_the_seed(base, tmp_path):
+    rows = [inject(base, ["APA-18a"], tmp_path / f"doi{s}.docx", seed=s) for s in range(6)]
+    paragraphs = {r["injections"][0]["paragraph"] for r in rows}
+    assert len(paragraphs) > 1                                   # different seeds, different DOIs
+    sub = check_references(accepted_view(tmp_path / "doi0.docx"))["APA-18"]["subchecks"]
+    assert [p["reason"] for p in sub["https_doi_org"]["problems"]] == ["dx.doi.org"]
 
 
 # ---------------- refusals ----------------
