@@ -227,6 +227,21 @@ class StyleResolver:
         _fill_word_defaults(result)
         return result
 
+    def resolve_emphasis(self, r: etree._Element, p: etree._Element) -> dict:
+        """Bold/italic: the first level with <w:b>/<w:i> decides;
+        w:val="0"/"false"/"off" means turned off. Nothing set -> False."""
+        result = {"sources": {}}
+        for key, tag in (("bold", "b"), ("italic", "i")):
+            result[key] = False
+            result["sources"][key] = WORD_DEFAULT
+            for src, rpr in self.run_levels(r, p):
+                el = rpr.find(w(tag))
+                if el is not None:
+                    result[key] = el.get(w("val")) not in ("0", "false", "off")
+                    result["sources"][key] = src
+                    break
+        return result
+
 
 def _fill_word_defaults(result: dict) -> None:
     """Replace "unset" values with Word's built-in defaults (source "word-default").
@@ -328,6 +343,12 @@ def resolve_effective(run: RunView | etree._Element, doc: AcceptedView) -> dict:
         "sources": {**para["sources"], **run_props["sources"]},
         "units": {"size_pt": _div(run_props["size"], 2), **para["units"]},
     }
+
+
+def resolve_emphasis(run: RunView | etree._Element, doc: AcceptedView) -> dict:
+    """Effective bold/italic of one run: {"bold": bool, "italic": bool, "sources"}."""
+    r = run.element if isinstance(run, RunView) else run
+    return get_resolver(doc).resolve_emphasis(r, _owning_paragraph(r))
 
 
 def resolve_paragraph(paragraph, doc: AcceptedView) -> dict:

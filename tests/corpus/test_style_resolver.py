@@ -15,7 +15,7 @@ from lxml import etree
 from tools.corpus.docx_view import accepted_view
 from tools.corpus.fixtures import build_good_docx
 from tools.corpus.style_resolver import (
-    UNSET, WORD_DEFAULT, get_resolver, resolve_effective, resolve_paragraph,
+    UNSET, WORD_DEFAULT, get_resolver, resolve_effective, resolve_emphasis, resolve_paragraph,
 )
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -225,6 +225,27 @@ def test_docdefaults_theme_font(tmp_path):
     eff = resolve_effective(_first_run(view), view)
     assert eff["font"] == "Georgia"
     assert eff["sources"]["font"] == "docDefaults (theme minorHAnsi)"
+
+
+# ---------------- bold / italic (for K-H6 label checks) ----------------
+
+def test_emphasis_from_paragraph_and_character_styles(tmp_path):
+    styles = (_style("Normal", "", default=True)
+              + _style("Label", "<w:rPr><w:b/></w:rPr>", based_on="Normal")
+              + _style("Emph", "<w:rPr><w:i/></w:rPr>", type_="character"))
+    body = _p(ppr='<w:pStyle w:val="Label"/>', rpr='<w:rStyle w:val="Emph"/>')
+    view = _make_docx(tmp_path / "em.docx", body, styles)
+    emph = resolve_emphasis(_first_run(view), view)
+    assert (emph["bold"], emph["sources"]["bold"]) == (True, "style:Label")
+    assert (emph["italic"], emph["sources"]["italic"]) == (True, "style:Emph")
+
+
+def test_emphasis_turned_off_directly(tmp_path):
+    styles = _style("Normal", "<w:rPr><w:b/></w:rPr>", default=True)
+    view = _make_docx(tmp_path / "eo.docx", _p(rpr='<w:b w:val="0"/>'), styles)
+    emph = resolve_emphasis(_first_run(view), view)
+    assert (emph["bold"], emph["sources"]["bold"]) == (False, "direct")
+    assert (emph["italic"], emph["sources"]["italic"]) == (False, WORD_DEFAULT)
 
 
 # ---------------- K-0.4b: numeric units ----------------
