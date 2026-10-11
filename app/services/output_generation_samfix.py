@@ -1158,6 +1158,44 @@ def _looks_like_author_list_text(text):
     return len(candidates) >= 2 and all(_looks_like_author_name_text(part) for part in candidates[:3])
 
 
+def _looks_like_course_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    if re.match(r"^course\s*:", clean, flags=re.IGNORECASE):
+        return True
+    return re.match(r"^[A-Z]{2,8}\s*-?\s*\d{2,4}\b", clean) is not None
+
+
+def _looks_like_instructor_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    if re.match(r"^instructor\s*:", clean, flags=re.IGNORECASE):
+        return True
+    return _has_known_title(clean) and _looks_like_author_name_text(clean)
+
+
+def _looks_like_due_date_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    month = (
+        r"(?:January|February|March|April|May|June|July|August|September|October|"
+        r"November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)"
+    )
+    return (
+        re.search(rf"\b{month}\s+\d{{1,2}}(?:,\s*|\s+)\d{{4}}\b", clean, re.IGNORECASE)
+        is not None
+        or re.search(rf"\b\d{{1,2}}\s+{month}\s+\d{{4}}\b", clean, re.IGNORECASE)
+        is not None
+        or re.search(r"\b\d{4}-\d{1,2}-\d{1,2}\b", clean) is not None
+        or re.match(r"^due\s*(date)?\s*:", clean, flags=re.IGNORECASE) is not None
+    )
+
+
+def _looks_like_author_note_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    return (
+        re.match(r"^author\s+note\s*:?", clean, flags=re.IGNORECASE) is not None
+        or re.search(r"\b(?:ORCID|correspondence)\b", clean, flags=re.IGNORECASE) is not None
+    )
+
+
 #fallback content-based authors detection when style is missing
 def _find_content_authors(front, title_idx):
     abstract_idx = None
@@ -5691,52 +5729,8 @@ def build_front_page_asset_check_plan(docxpath):
 
 
 def _apply_front_page_asset_plan(input_path, output_path, plan):
-    if plan.get("action") != "add_front_page_asset_comments":
-        return False
-    comment_items = plan.get("comments", [])
-    if not comment_items:
-        return False
-
-    current_input = input_path
-    applied_any = False
-
-    for item in comment_items:
-        message = (item.get("message") or "").strip()
-        if message == "":
-            continue
-
-        if message == FRONT_PAGE_BANNER_COMMENT:
-            inserted = _insert_front_page_banner_from_template(
-                current_input,
-                output_path,
-                item.get("anchor_pos", 0),
-            )
-            if inserted is True:
-                current_input = output_path
-                applied_any = True
-                continue
-
-        if message == FRONT_PAGE_TEXT_BOX_COMMENT:
-            inserted = _insert_front_page_text_box_from_template(
-                current_input,
-                output_path,
-                item.get("anchor_pos", 0),
-            )
-            if inserted is True:
-                current_input = output_path
-                applied_any = True
-                continue
-
-        _write_single_comment_docx(
-            input_path=current_input,
-            output_path=output_path,
-            paragraph_index=item.get("anchor_pos", 0),
-            message=message,
-        )
-        current_input = output_path
-        applied_any = True
-
-    return applied_any
+    # > C-24a: APA title-page normalization supersedes the JUTLP asset plan.
+    return False
 
 
 
@@ -8667,6 +8661,430 @@ def _apply_apa_heading_styles(input_path, output_path):
     return styles_applied or jc_stripped
 
 
+APA_TITLE_PAGE_CHANGE_ID = 9650
+RUNNING_HEAD_MAX_CHARS = 50
+APA_TITLE_PAGE_SPACER_COUNT = 3
+
+
+def _resolve_apa_title_page_mode(mode=None):
+    """Resolve the D1 title-page mode without accepting arbitrary values."""
+    candidate = str(mode or "").strip().lower()
+    if candidate in {"student", "professional"}:
+        return candidate
+
+    configured = str(os.environ.get("APA7_TITLE_PAGE_MODE", "")).strip().lower()
+    if configured in {"student", "professional"}:
+        return configured
+
+    configured = str(_APA7_CONFIG.DEFAULT_MODE or "auto").strip().lower()
+    return configured if configured in {"student", "professional"} else "auto"
+
+
+def _derive_running_head(title_text):
+    clean = re.sub(r"\s+", " ", (title_text or "")).strip()
+    if len(clean) <= RUNNING_HEAD_MAX_CHARS:
+        return clean.upper()
+
+    truncated = clean[:RUNNING_HEAD_MAX_CHARS].rsplit(" ", 1)[0].strip()
+    return (truncated or clean[:RUNNING_HEAD_MAX_CHARS].strip()).upper()
+
+
+def _paragraph_style_id(para_element):
+    p_pr = para_element.find(f"{WQ}pPr")
+    if p_pr is None:
+        return ""
+    p_style = p_pr.find(f"{WQ}pStyle")
+    return p_style.get(f"{WQ}val", "") if p_style is not None else ""
+
+
+def _title_page_metadata_plan(docxpath, mode=None):
+    doc_root, body_paras = _load_body_paras_raw(docxpath)
+    front_page_paras = _front_page_body_paras(body_paras)
+    title_state = titleFound(docxpath)
+    title_idx = title_state.get("anchor_pos") if title_state.get("title_found") else None
+
+    author_state = authorFound(docxpath)
+    authors_idx = auth_start_pos if auth_start_pos is not None else None
+    affiliation_indices = []
+    course_indices = []
+    instructor_indices = []
+    due_date_indices = []
+    author_note_indices = []
+
+    if title_idx is not None:
+        for index, para in enumerate(body_paras):
+            if index <= title_idx or para not in front_page_paras:
+                continue
+            text = _paragraph_direct_text(para)
+            if text == "":
+                continue
+            if authors_idx is None and _looks_like_author_list_text(text):
+                authors_idx = index
+                continue
+            if (
+                authors_idx is None
+                and not _looks_like_course_line(text)
+                and not _looks_like_instructor_line(text)
+                and not _looks_like_due_date_line(text)
+                and not _paragraph_has_affiliations_block(text)
+            ):
+                authors_idx = index
+                continue
+            if index <= (authors_idx if authors_idx is not None else title_idx):
+                continue
+
+            style_id = _paragraph_style_id(para)
+            if style_id in {AFFILIATIONS_REQUIRED_STYLE_ID, "Author Affiliations"}:
+                affiliation_indices.append(index)
+            elif _paragraph_has_affiliations_block(text) and not _looks_like_author_list_text(text):
+                affiliation_indices.append(index)
+            elif (
+                not affiliation_indices
+                and not _looks_like_course_line(text)
+                and not _looks_like_instructor_line(text)
+                and not _looks_like_due_date_line(text)
+                and not _looks_like_author_note_line(text)
+            ):
+                affiliation_indices.append(index)
+
+            if _looks_like_course_line(text):
+                course_indices.append(index)
+            elif _looks_like_instructor_line(text):
+                instructor_indices.append(index)
+            elif _looks_like_due_date_line(text):
+                due_date_indices.append(index)
+            elif _looks_like_author_note_line(text):
+                author_note_indices.append(index)
+
+    student_markers = bool(course_indices or instructor_indices or due_date_indices)
+    resolved_mode = _resolve_apa_title_page_mode(mode)
+    if resolved_mode == "auto":
+        resolved_mode = "student" if student_markers or not author_note_indices else "professional"
+
+    return {
+        "mode": resolved_mode,
+        "title_idx": title_idx,
+        "title_text": title_state.get("title_text", ""),
+        "authors_idx": authors_idx,
+        "affiliation_indices": affiliation_indices,
+        "course_indices": course_indices,
+        "instructor_indices": instructor_indices,
+        "due_date_indices": due_date_indices,
+        "author_note_indices": author_note_indices,
+        "title_found": title_state.get("title_found", False),
+        "authors_present": author_state.get("authors_present", False),
+        "body_paragraph_count": len(body_paras),
+        "doc_root": doc_root,
+    }
+
+
+def build_apa_title_page_plan(docxpath, mode=None):
+    """Return the detected APA-07 title-page roles and resolved mode."""
+    plan = _title_page_metadata_plan(docxpath, mode=mode)
+    plan.pop("doc_root", None)
+    return plan
+
+
+def _remove_front_page_artifacts(doc_root, body_paras):
+    changed = False
+    for para in list(_front_page_body_paras(body_paras)):
+        if _element_has_textbox(para):
+            for child in list(para.iter()):
+                if _xml_local_name(child) in {"txbxContent", "textbox"}:
+                    parent = child.getparent()
+                    if parent is not None:
+                        parent.remove(child)
+                        changed = True
+        elif _paragraph_has_picture(para) and _paragraph_direct_text(para) == "":
+            for child in list(para.iter()):
+                if _xml_local_name(child) in {"blip", "imagedata"}:
+                    parent = child.getparent()
+                    if parent is not None:
+                        parent.remove(child)
+                        changed = True
+    return changed
+
+
+def _first_section_header_names(doc_root, rels_root, names):
+    sect_pr = _first_section_properties(doc_root)
+    if sect_pr is None:
+        return []
+
+    header_names = []
+    for header_ref in sect_pr.findall(f"{WQ}headerReference"):
+        target = _find_relationship_target(rels_root, header_ref.get(f"{RQ}id", ""))
+        header_name = _normalise_docx_target(target)
+        if header_name in names and header_name not in header_names:
+            header_names.append(header_name)
+    return header_names
+
+
+def _strip_header_picture_paragraphs(header_root):
+    changed = False
+    for para in list(header_root.findall(f".//{WQ}p")):
+        if not _paragraph_has_picture(para):
+            continue
+        if "PAGE" in "".join(para.itertext()):
+            for child in list(para.iter()):
+                if _xml_local_name(child) in {"blip", "imagedata"}:
+                    parent = child.getparent()
+                    if parent is not None:
+                        parent.remove(child)
+                        changed = True
+            continue
+        parent = para.getparent()
+        if parent is not None:
+            parent.remove(para)
+            changed = True
+    return changed
+
+
+def _set_title_page_ppr(para_element, style_id=None, change_id=APA_TITLE_PAGE_CHANGE_ID):
+    p_pr = para_element.find(f"{WQ}pPr")
+    old_p_pr = _copy_properties_without_change(p_pr, f"{WQ}pPr", f"{WQ}pPrChange")
+    if p_pr is None:
+        p_pr = etree.Element(f"{WQ}pPr")
+        para_element.insert(0, p_pr)
+
+    changed = False
+    if style_id:
+        p_style = p_pr.find(f"{WQ}pStyle")
+        if p_style is None:
+            p_style = etree.Element(f"{WQ}pStyle")
+            p_pr.insert(0, p_style)
+        if p_style.get(f"{WQ}val") != style_id:
+            p_style.set(f"{WQ}val", style_id)
+            changed = True
+
+    jc = _find_or_make_child(p_pr, f"{WQ}jc")
+    desired_alignment = "center"
+    if jc.get(f"{WQ}val") != desired_alignment:
+        jc.set(f"{WQ}val", desired_alignment)
+        changed = True
+
+    spacing = _find_or_make_child(p_pr, f"{WQ}spacing")
+    desired_spacing = {
+        f"{WQ}line": APA_DOUBLE_SPACING_TWIPS,
+        f"{WQ}lineRule": "auto",
+        f"{WQ}before": "0",
+        f"{WQ}after": APA_SPACE_AFTER_TWIPS,
+    }
+    for attr, value in desired_spacing.items():
+        if spacing.get(attr) != value:
+            spacing.set(attr, value)
+            changed = True
+
+    ind = _find_or_make_child(p_pr, f"{WQ}ind")
+    for attr, value in {
+        f"{WQ}left": "0",
+        f"{WQ}firstLine": "0",
+    }.items():
+        if ind.get(attr) != value:
+            ind.set(attr, value)
+            changed = True
+    for attr in (f"{WQ}hanging", f"{WQ}right", f"{WQ}start", f"{WQ}end"):
+        if attr in ind.attrib:
+            del ind.attrib[attr]
+            changed = True
+
+    if changed:
+        _remove_tracked_property_change(p_pr, f"{WQ}pPrChange")
+        p_pr_change = etree.SubElement(p_pr, f"{WQ}pPrChange")
+        _set_tracked_change_details(p_pr_change, change_id)
+        p_pr_change.append(old_p_pr)
+    return changed
+
+
+def _make_page_field():
+    field = etree.Element(f"{WQ}fldSimple")
+    field.set(f"{WQ}instr", " PAGE ")
+    run = etree.SubElement(field, f"{WQ}r")
+    r_pr = etree.SubElement(run, f"{WQ}rPr")
+    fonts = etree.SubElement(r_pr, f"{WQ}rFonts")
+    for attr in ("ascii", "hAnsi", "cs"):
+        fonts.set(f"{WQ}{attr}", BODY_REQUIRED_FONT_NAME)
+    size = etree.SubElement(r_pr, f"{WQ}sz")
+    size.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
+    text = etree.SubElement(run, f"{WQ}t")
+    text.text = "1"
+    return field
+
+
+def _ensure_running_head_header(header_root, running_head=None):
+    paragraphs = list(header_root.findall(f".//{WQ}p"))
+    page_para = next(
+        (para for para in paragraphs if any(
+            "PAGE" in field.get(f"{WQ}instr", "")
+            for field in para.iter(f"{WQ}fldSimple")
+        )),
+        None,
+    )
+    if page_para is None:
+        page_para = etree.SubElement(header_root, f"{WQ}p")
+
+    p_pr = page_para.find(f"{WQ}pPr")
+    if p_pr is None:
+        p_pr = etree.Element(f"{WQ}pPr")
+        page_para.insert(0, p_pr)
+    if running_head:
+        p_style = p_pr.find(f"{WQ}pStyle")
+        if p_style is None:
+            p_style = etree.SubElement(p_pr, f"{WQ}pStyle")
+        p_style.set(f"{WQ}val", "Header")
+    jc = _find_or_make_child(p_pr, f"{WQ}jc")
+    jc.set(f"{WQ}val", "left" if running_head else "right")
+    tabs = p_pr.find(f"{WQ}tabs")
+    if tabs is None:
+        tabs = etree.SubElement(p_pr, f"{WQ}tabs")
+    for tab in list(tabs):
+        tabs.remove(tab)
+    right_tab = etree.SubElement(tabs, f"{WQ}tab")
+    right_tab.set(f"{WQ}val", "right")
+    right_tab.set(f"{WQ}pos", "9360")
+
+    old_children = list(page_para)
+    fields = [
+        copy.deepcopy(field)
+        for field in page_para.iter(f"{WQ}fldSimple")
+        if "PAGE" in field.get(f"{WQ}instr", "")
+    ]
+    for child in old_children:
+        if child is not p_pr:
+            page_para.remove(child)
+    if not fields:
+        fields = [_make_page_field()]
+
+    if running_head:
+        run = etree.SubElement(page_para, f"{WQ}r")
+        text = etree.SubElement(run, f"{WQ}t")
+        text.text = running_head
+        tab_run = etree.SubElement(page_para, f"{WQ}r")
+        etree.SubElement(tab_run, f"{WQ}tab")
+    page_para.extend(fields)
+    return True
+
+
+def _apply_apa_title_page_headers(parts, doc_root, rels_root, names, mode, title_text):
+    running_head = _derive_running_head(title_text) if mode == "professional" else None
+    changed = False
+    for header_name in _first_section_header_names(doc_root, rels_root, names):
+        header_root = etree.fromstring(parts[header_name])
+        header_changed = _strip_header_picture_paragraphs(header_root)
+        _ensure_running_head_header(header_root, running_head)
+        new_xml = etree.tostring(header_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+        if new_xml != parts[header_name] or header_changed:
+            parts[header_name] = new_xml
+            changed = True
+    return changed
+
+
+def _apply_apa_title_page(input_path, output_path, mode=None, change_id=APA_TITLE_PAGE_CHANGE_ID):
+    """Normalize the front page for APA-07 and APA-06."""
+    title_state = titleFound(input_path)
+    title_plan = titleFormatCheck(input_path, title_state)
+    current_input = input_path
+    applied = _apply_title_plan(current_input, output_path, title_plan)
+    if applied:
+        current_input = output_path
+
+    metadata = _title_page_metadata_plan(current_input, mode=mode)
+    with zipfile.ZipFile(current_input, "r") as source:
+        names = source.namelist()
+        parts = {item.filename: source.read(item.filename) for item in source.infolist()}
+    if "word/document.xml" not in parts or "word/_rels/document.xml.rels" not in parts:
+        return applied
+
+    doc_root = etree.fromstring(parts["word/document.xml"])
+    rels_root = etree.fromstring(parts["word/_rels/document.xml.rels"])
+    body_paras = [el for el in doc_root.find(f"{WQ}body") if el.tag == f"{WQ}p"]
+    changed = _remove_front_page_artifacts(doc_root, body_paras)
+
+    metadata = _title_page_metadata_plan(current_input, mode=mode)
+    title_idx = metadata.get("title_idx")
+    if title_idx is not None:
+        body = doc_root.find(f"{WQ}body")
+        body_paras = [el for el in body if el.tag == f"{WQ}p"]
+        title_el = body_paras[title_idx] if title_idx < len(body_paras) else None
+        if title_el is not None:
+            blank_count = 0
+            index = title_idx - 1
+            while index >= 0 and _paragraph_direct_text(body_paras[index]) == "":
+                blank_count += 1
+                index -= 1
+            spacer_count = max(0, APA_TITLE_PAGE_SPACER_COUNT - blank_count)
+            for offset in range(spacer_count):
+                spacer = _make_inserted_styled_paragraph(
+                    "", "Normal", change_id + offset
+                )
+                body.insert(list(body).index(title_el), spacer)
+                changed = True
+
+            body_paras = [el for el in body if el.tag == f"{WQ}p"]
+            title_idx = next((i for i, el in enumerate(body_paras) if el is title_el), title_idx)
+            changed = _set_title_page_ppr(title_el, TITLE_REQUIRED_STYLE_ID, change_id) or changed
+
+            def shifted(index):
+                return index + spacer_count if index >= title_idx else index
+
+            authors_idx = metadata.get("authors_idx")
+            if authors_idx is not None:
+                authors_idx = shifted(authors_idx)
+                if authors_idx < len(body_paras):
+                    changed = _set_title_page_ppr(
+                        body_paras[authors_idx], AUTHORS_REQUIRED_STYLE_ID, change_id + 1
+                    ) or changed
+
+            role_indices = [
+                shifted(index)
+                for index in (
+                    metadata.get("affiliation_indices", [])
+                    + metadata.get("course_indices", [])
+                    + metadata.get("instructor_indices", [])
+                    + metadata.get("due_date_indices", [])
+                    + metadata.get("author_note_indices", [])
+                )
+            ]
+            for index in role_indices:
+                if index < len(body_paras):
+                    changed = _set_title_page_ppr(body_paras[index], None, change_id + 2) or changed
+
+            if metadata["mode"] == "professional":
+                student_indices = sorted(
+                    {
+                        shifted(index)
+                        for index in (
+                            metadata.get("course_indices", [])
+                            + metadata.get("instructor_indices", [])
+                            + metadata.get("due_date_indices", [])
+                        )
+                    },
+                    reverse=True,
+                )
+                for index in student_indices:
+                    if index < len(body_paras):
+                        parent = body_paras[index].getparent()
+                        parent.remove(body_paras[index])
+                        changed = True
+
+    changed = _apply_apa_title_page_headers(
+        parts, doc_root, rels_root, names, metadata["mode"], metadata.get("title_text", "")
+    ) or changed
+    if not changed:
+        if current_input != output_path:
+            shutil.copy2(current_input, output_path)
+        return applied
+
+    parts["word/document.xml"] = etree.tostring(
+        doc_root, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    temp_path = output_path + ".apa-title.tmp"
+    with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, data in parts.items():
+            target.writestr(name, data)
+    os.replace(temp_path, output_path)
+    return True
+
+
 def _ensure_ppr_child(p_pr, tag):
     child = p_pr.find(f"{WQ}{tag}")
     if child is not None:
@@ -9749,7 +10167,7 @@ def _apply_heading_2_title_case(input_path, output_path):
 
 
 #run all section planners and apply all generated edits/comments in sequence
-def build_edited_document(input_path, output_path=None):
+def build_edited_document(input_path, output_path=None, mode=None):
     auto_output_path = output_path is None
     if output_path is None:
         parent_dir = os.path.dirname(input_path)
@@ -9765,10 +10183,8 @@ def build_edited_document(input_path, output_path=None):
     current_input_path = input_path
     applied_any = False
 
-    title_applied = _apply_title_plan(current_input_path, output_path, title_plan)
-    if title_applied is True:
-        current_input_path = output_path
-        applied_any = True
+    # C-24a/C-24b apply the title plan inside the consolidated APA title-page pass.
+    title_applied = title_plan.get("action", "none") != "none"
 
     abstract_state = abstractFound(current_input_path)
     abstract_plan = abstractFormatCheck(current_input_path, abstract_state)
@@ -9908,21 +10324,13 @@ def build_edited_document(input_path, output_path=None):
         current_input_path = output_path
         applied_any = True
 
-    front_page_asset_plan = build_front_page_asset_check_plan(current_input_path)
-    front_page_asset_applied = _apply_front_page_asset_plan(
+    apa_title_page_plan = build_apa_title_page_plan(current_input_path, mode=mode)
+    apa_title_page_applied = _apply_apa_title_page(
         current_input_path,
         output_path,
-        front_page_asset_plan,
+        mode=mode,
     )
-    if front_page_asset_applied is True:
-        current_input_path = output_path
-        applied_any = True
-
-    front_page_textbox_normalised = _normalise_front_page_textbox_layout(
-        current_input_path,
-        output_path,
-    )
-    if front_page_textbox_normalised is True:
+    if apa_title_page_applied is True:
         current_input_path = output_path
         applied_any = True
 
@@ -9968,7 +10376,7 @@ def build_edited_document(input_path, output_path=None):
                 "corrections": narrative_citation_corrections,
             },
             "editorial_review": editorial_review_plan,
-            "front_page_assets": front_page_asset_plan,
+            "apa_title_page": apa_title_page_plan,
             "heading_corrections": heading_corrections,
         },
         "title_plan": title_plan,
@@ -9980,7 +10388,7 @@ def build_edited_document(input_path, output_path=None):
         "body_edit_plan": body_edit_plan,
         "narrative_citation_corrections": narrative_citation_corrections,
         "editorial_review_plan": editorial_review_plan,
-        "front_page_asset_plan": front_page_asset_plan,
+        "apa_title_page_plan": apa_title_page_plan,
         "intro_page_break_applied": intro_page_break_applied,
         "heading_1_text_normalization_applied": heading_1_text_normalization_applied,
         "normal_style_applied": normal_style_applied,
@@ -10000,8 +10408,7 @@ def build_edited_document(input_path, output_path=None):
         "editorial_review_applied": editorial_review_applied,
         "practitioner_stub_applied": practitioner_stub_applied,
         "keywords_stub_applied": keywords_stub_applied,
-        "front_page_asset_applied": front_page_asset_applied,
-        "front_page_textbox_normalised": front_page_textbox_normalised,
+        "apa_title_page_applied": apa_title_page_applied,
         "applied": applied_any,
     }
 

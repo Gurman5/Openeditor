@@ -16,7 +16,10 @@ ALLOWED_FONTS = {"Calibri", "Arial", "Times New Roman", "Georgia", "Lucida Sans 
 DEFAULT_FONT = "Calibri"          # C-27: default, Calibri for body + headings (D2 locked)
 DEFAULT_FONT_SIZE = 11
 HEADING_FONT = "Calibri"
-DEFAULT_MODE = "auto"             # auto-detect student/pro + manual override (D1 locked)
+DEFAULT_MODE = os.environ.get(
+    "APA7_TITLE_PAGE_MODE",
+    os.environ.get("DEFAULT_MODE", "auto"),
+).strip().lower() or "auto"       # auto-detect student/pro + manual override (D1 locked)
 SPELLING_VARIANT = "AU"           # spelling direction, confirmed AU (D3 locked)
 
 MARGIN_IN = 1.0                   # APA-00: 1" margins all sides
