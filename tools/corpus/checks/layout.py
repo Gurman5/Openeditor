@@ -38,6 +38,7 @@ from pathlib import Path
 from tools.corpus.checks.abstract import find_abstract
 from tools.corpus.checks.headings import find_headings, is_section_label
 from tools.corpus.checks.page_numbers import check_page_numbers
+from tools.corpus.checks.refs import find_references
 from tools.corpus.docx_view import AcceptedView, ParagraphView, accepted_view, w
 from tools.corpus.style_resolver import resolve_paragraph
 
@@ -194,22 +195,6 @@ def check_alignment(doc) -> dict:
 # APA-04 indent
 # --------------------------------------------------------------------------
 
-def _reference_list(view: AcceptedView) -> set[int]:
-    """Indices of paragraphs after "References" up to the next label or heading."""
-    out, inside = set(), False
-    _, _, headings = find_headings(view)
-    heading_idx = {h["paragraph"] for h in headings if h["found_by"] == "outline"}
-    for p in view.paragraphs:
-        label = is_section_label(p.text)
-        if inside and (label or p.index in heading_idx):
-            inside = False
-        if inside:
-            out.add(p.index)
-        if label and p.text.strip().rstrip(".:").lower() == "references":
-            inside = True
-    return out
-
-
 def body_paragraphs(view: AcceptedView) -> list[ParagraphView]:
     """Paragraphs that APA expects to carry a 0.5" first-line indent."""
     title, copies, headings = find_headings(view)
@@ -217,7 +202,7 @@ def body_paragraphs(view: AcceptedView) -> list[ParagraphView]:
     skip |= {p.index for p in copies} | ({title.index} if title else set())
     label, abstract_body, keywords = find_abstract(view)
     skip |= {p.index for p in [label, keywords, *abstract_body] if p is not None}
-    skip |= _reference_list(view)
+    skip |= {p.index for p in find_references(view)[1]}     # same list as APA-12
 
     body = []
     for p in _text_paragraphs(view, include_tables=False):

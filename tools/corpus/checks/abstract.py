@@ -65,7 +65,7 @@ def keyword_char_limit(value: int | None = None) -> int:
 # Finding the abstract zone
 # --------------------------------------------------------------------------
 
-def _has_pr_flag(p: ParagraphView, view: AcceptedView, tag: str) -> bool:
+def has_pr_flag(p: ParagraphView, view: AcceptedView, tag: str) -> bool:
     """True if pPr (direct or via the style chain) turns on <tag>."""
     for _, ppr in get_resolver(view).paragraph_levels(p.element):
         el = ppr.find(w(tag))
@@ -82,7 +82,7 @@ def _is_heading(p: ParagraphView, view: AcceptedView) -> bool:
     return False
 
 
-def _text_before_page_break(p: ParagraphView) -> tuple[str, bool]:
+def text_before_page_break(p: ParagraphView) -> tuple[str, bool]:
     """(visible text before the first <w:br w:type="page"/>, found a break?)."""
     parts = []
     for run in p.runs:
@@ -113,9 +113,9 @@ def find_abstract(view: AcceptedView):
         if _KEYWORDS_RE.match(p.text):
             keywords = p
             break
-        if _has_pr_flag(p, view, "pageBreakBefore") or _is_heading(p, view):
+        if has_pr_flag(p, view, "pageBreakBefore") or _is_heading(p, view):
             break
-        before, broke = _text_before_page_break(p)
+        before, broke = text_before_page_break(p)
         if before.strip():
             body.append(p)
         if broke or _ends_section(p):
