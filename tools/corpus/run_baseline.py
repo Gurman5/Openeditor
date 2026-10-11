@@ -43,6 +43,7 @@ def json_safe(value: Any) -> Any:
     try:
         json.dumps(value)
         return value
+
     except (TypeError, ValueError):
         return repr(value)
 
@@ -52,7 +53,11 @@ def get_git_commit() -> str:
 
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            [
+                "git",
+                "rev-parse",
+                "HEAD",
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -69,7 +74,11 @@ def get_git_branch() -> str:
 
     try:
         result = subprocess.run(
-            ["git", "branch", "--show-current"],
+            [
+                "git",
+                "branch",
+                "--show-current",
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -85,8 +94,8 @@ def get_selected_pip_freeze() -> list[str]:
     """
     Record important package versions used during the baseline.
 
-    The Track K backlog specifically requires the environment information
-    for python-docx, lxml and openai.
+    Track K records python-docx, lxml and openai so that the
+    baseline environment can be reproduced later.
     """
 
     wanted = {
@@ -119,7 +128,10 @@ def get_selected_pip_freeze() -> list[str]:
         if not clean:
             continue
 
-        package_name = clean.split("==", 1)[0].lower()
+        package_name = clean.split(
+            "==",
+            1,
+        )[0].lower()
 
         if package_name in wanted:
             packages.append(clean)
@@ -149,14 +161,17 @@ def copy_crossref_cache(
     A final copy is kept at:
         crossref_cache.json
 
-    A per-document snapshot is also kept so we can see the state after
-    processing each document.
+    A per-document snapshot is also kept so the state after each
+    processed document can be inspected later.
     """
 
     if not CROSSREF_CACHE.exists():
         return
 
-    destination = run_dir / "crossref_cache.json"
+    destination = (
+        run_dir
+        / "crossref_cache.json"
+    )
 
     shutil.copy2(
         CROSSREF_CACHE,
@@ -202,6 +217,62 @@ def write_json(
     )
 
 
+def configure_llm_mode(
+    mode: str,
+) -> dict[str, bool]:
+    """
+    Configure the LLM state for a baseline run.
+
+    For Scoreboard A (--llm off), removing OPENAI_API_KEY from the
+    environment is not enough because app/services/config.py may load
+    the key from .env when llm_client is imported.
+
+    Therefore Scoreboard A clears both:
+    - the environment variable
+    - llm_client.OPENAI_API_KEY
+
+    CrossRef is intentionally left enabled.
+    """
+
+    if mode == "off":
+        # Remove the environment copy first.
+        os.environ.pop(
+            "OPENAI_API_KEY",
+            None,
+        )
+
+        # Import after removing the environment value. config.py may
+        # still load the key from .env, so clear the module value too.
+        import app.services.ai.llm_client as llm_client
+
+        llm_client.OPENAI_API_KEY = None
+
+        return {
+            "env_api_key_set": bool(
+                os.environ.get(
+                    "OPENAI_API_KEY"
+                )
+            ),
+            "client_api_key_set": bool(
+                llm_client.OPENAI_API_KEY
+            ),
+        }
+
+    # Scoreboard B / LLM-on mode.
+    import app.services.ai.llm_client as llm_client
+
+    return {
+        "env_api_key_set": bool(
+            os.environ.get(
+                "OPENAI_API_KEY"
+            )
+        ),
+        "client_api_key_set": bool(
+            llm_client.OPENAI_API_KEY
+        ),
+    }
+
+
 def run_one_document(
     input_path: Path,
     output_path: Path,
@@ -214,8 +285,11 @@ def run_one_document(
     Errors are recorded instead of stopping the entire batch.
     """
 
-    # Import here so command-line help can still work even if
-    # application dependencies have a problem.
+    # Import here so command-line help can work without loading
+    # the complete application.
+    #
+    # configure_llm_mode() is called before this function, so the
+    # LLM state has already been configured for the run.
     from app.pipelines.feedback_gen_pipeline import (
         doc_analysis_pipeline,
     )
@@ -239,9 +313,13 @@ def run_one_document(
         ), contextlib.redirect_stderr(
             stderr_buffer
         ):
-            pipeline_return = doc_analysis_pipeline(
-                str(input_path),
-                output_path=str(output_path),
+            pipeline_return = (
+                doc_analysis_pipeline(
+                    str(input_path),
+                    output_path=str(
+                        output_path
+                    ),
+                )
             )
 
     except Exception as exc:
@@ -256,8 +334,13 @@ def run_one_document(
 
     finished_at = utc_now()
 
-    stdout_text = stdout_buffer.getvalue()
-    stderr_text = stderr_buffer.getvalue()
+    stdout_text = (
+        stdout_buffer.getvalue()
+    )
+
+    stderr_text = (
+        stderr_buffer.getvalue()
+    )
 
     stdout_path = (
         raw_dir
@@ -319,50 +402,31 @@ def run_one_document(
     return record
 
 
-def configure_llm_mode(
-    mode: str,
-) -> bool:
-    """
-    Configure whether the OpenAI API key is available.
-
-    Returns whether an API key is set after configuration.
-    """
-
-    if mode == "off":
-        os.environ.pop(
-            "OPENAI_API_KEY",
-            None,
-        )
-
-        return False
-
-    return bool(
-        os.environ.get("OPENAI_API_KEY")
-    )
-
-
 def build_run_metadata(
     corpus_dir: Path,
     run_dir: Path,
     llm_mode: str,
-    api_key_set: bool,
+    llm_state: dict[str, bool],
     seed_documents: list[Path],
 ) -> dict[str, Any]:
     """Create metadata describing this baseline run."""
 
     return {
         "schema_version": 1,
-        "run_type": "track-k-baseline",
+        "run_type": (
+            "track-k-baseline"
+        ),
         "created_at": utc_now(),
         "corpus": str(corpus_dir),
-        "output_directory": str(run_dir),
+        "output_directory": str(
+            run_dir
+        ),
         "document_count": len(
             seed_documents
         ),
         "documents": [
             path.name
-            for path
-            in seed_documents
+            for path in seed_documents
         ],
         "git": {
             "commit": get_git_commit(),
@@ -375,22 +439,49 @@ def build_run_metadata(
             "python_executable": (
                 sys.executable
             ),
-            "platform": platform.platform(),
+            "platform": (
+                platform.platform()
+            ),
             "packages": (
                 get_selected_pip_freeze()
             ),
         },
         "llm": {
             "mode": llm_mode,
-            "api_key_set": api_key_set,
+
+            # Kept for compatibility with the existing
+            # run metadata format.
+            "api_key_set": (
+                llm_state[
+                    "client_api_key_set"
+                ]
+            ),
+
+            # These two fields show that Scoreboard A
+            # was genuinely LLM-off.
+            "env_api_key_set": (
+                llm_state[
+                    "env_api_key_set"
+                ]
+            ),
+            "client_api_key_set": (
+                llm_state[
+                    "client_api_key_set"
+                ]
+            ),
+
             "model": os.environ.get(
                 "OPENAI_MODEL"
             ),
-            "temperature": os.environ.get(
-                "OPENAI_TEMPERATURE"
+            "temperature": (
+                os.environ.get(
+                    "OPENAI_TEMPERATURE"
+                )
             ),
-            "max_tokens": os.environ.get(
-                "OPENAI_MAX_TOKENS"
+            "max_tokens": (
+                os.environ.get(
+                    "OPENAI_MAX_TOKENS"
+                )
             ),
         },
     }
@@ -405,9 +496,10 @@ def run_baseline(
 
     if not corpus_dir.exists():
         print(
-            f"ERROR: corpus directory "
+            "ERROR: corpus directory "
             f"does not exist: {corpus_dir}"
         )
+
         return 1
 
     seed_documents = (
@@ -418,9 +510,10 @@ def run_baseline(
 
     if not seed_documents:
         print(
-            f"ERROR: no DOCX files found "
+            "ERROR: no DOCX files found "
             f"in {corpus_dir}"
         )
+
         return 1
 
     if (
@@ -431,9 +524,11 @@ def run_baseline(
             "ERROR: Track K seed corpus "
             "must contain exactly 4 DOCX files."
         )
+
         print(
             f"Found: {len(seed_documents)}"
         )
+
         return 1
 
     outputs_dir = (
@@ -456,25 +551,50 @@ def run_baseline(
         exist_ok=True,
     )
 
-    api_key_set = configure_llm_mode(
+    # Configure the LLM before importing/running
+    # doc_analysis_pipeline.
+    llm_state = configure_llm_mode(
         llm_mode
     )
 
     if (
         llm_mode == "on"
-        and not api_key_set
+        and not llm_state[
+            "client_api_key_set"
+        ]
     ):
         print(
             "ERROR: --llm on was requested "
-            "but OPENAI_API_KEY is not set."
+            "but the OpenAI API key is not "
+            "available to llm_client."
         )
+
+        return 1
+
+    if (
+        llm_mode == "off"
+        and (
+            llm_state[
+                "env_api_key_set"
+            ]
+            or llm_state[
+                "client_api_key_set"
+            ]
+        )
+    ):
+        print(
+            "ERROR: --llm off was requested "
+            "but the OpenAI API key is "
+            "still active."
+        )
+
         return 1
 
     run_meta = build_run_metadata(
         corpus_dir=corpus_dir,
         run_dir=run_dir,
         llm_mode=llm_mode,
-        api_key_set=api_key_set,
+        llm_state=llm_state,
         seed_documents=seed_documents,
     )
 
@@ -484,7 +604,7 @@ def run_baseline(
     )
 
     print(
-        f"Track K baseline run"
+        "Track K baseline run"
     )
 
     print(
@@ -496,12 +616,22 @@ def run_baseline(
     )
 
     print(
-        f"Documents: "
+        "Documents: "
         f"{len(seed_documents)}"
     )
 
     print(
         f"LLM mode: {llm_mode}"
+    )
+
+    print(
+        "LLM env key set: "
+        f"{llm_state['env_api_key_set']}"
+    )
+
+    print(
+        "LLM client key set: "
+        f"{llm_state['client_api_key_set']}"
     )
 
     print()
@@ -532,10 +662,14 @@ def run_baseline(
 
         records.append(record)
 
-        if record["status"] == "success":
+        if (
+            record["status"]
+            == "success"
+        ):
             print(
                 "  status: success"
             )
+
         else:
             print(
                 "  status: error"
@@ -554,7 +688,8 @@ def run_baseline(
     success_count = sum(
         1
         for item in records
-        if item["status"] == "success"
+        if item["status"]
+        == "success"
     )
 
     error_count = (
@@ -581,7 +716,8 @@ def run_baseline(
         summary,
     )
 
-    # Update run metadata with completion information.
+    # Update metadata after all four documents
+    # have been attempted.
     run_meta["completed_at"] = (
         utc_now()
     )
@@ -597,22 +733,26 @@ def run_baseline(
     )
 
     print()
+
     print(
         "Baseline capture complete."
     )
+
     print(
         f"Successful: {success_count}"
     )
+
     print(
         f"Errors: {error_count}"
     )
+
     print(
-        f"Results: "
+        "Results: "
         f"{run_dir / 'results.json'}"
     )
 
-    # Do not abort the batch because one document failed,
-    # but return a non-zero code after all documents were attempted.
+    # All documents are attempted even if one fails.
+    # Return non-zero only after the complete batch.
     if error_count:
         return 1
 
@@ -647,7 +787,10 @@ def main() -> int:
 
     parser.add_argument(
         "--llm",
-        choices=("off", "on"),
+        choices=(
+            "off",
+            "on",
+        ),
         default="off",
         help=(
             "Run with the OpenAI API "
@@ -658,8 +801,12 @@ def main() -> int:
     args = parser.parse_args()
 
     return run_baseline(
-        corpus_dir=Path(args.corpus),
-        run_dir=Path(args.out),
+        corpus_dir=Path(
+            args.corpus
+        ),
+        run_dir=Path(
+            args.out
+        ),
         llm_mode=args.llm,
     )
 
