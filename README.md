@@ -76,6 +76,7 @@ Set these variables in Railway:
 | `OPENAI_MODEL` | No | Defaults to `gpt-5.4-mini` |
 | `OPENAI_TEMPERATURE` | No | Defaults to `0.2` |
 | `OPENAI_MAX_TOKENS` | No | Defaults to `16384` |
+| `APA7_TITLE_PAGE_MODE` | No | `auto`, `student`, or `professional`; defaults to auto-detection |
 | `MAX_UPLOAD_MB` | No | Defaults to `16` |
 | `RATE_LIMIT_DEFAULT` | No | Defaults to `200 per day; 60 per hour` |
 | `RATE_LIMIT_UPLOAD` | No | Defaults to `10 per hour` |
