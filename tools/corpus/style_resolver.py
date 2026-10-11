@@ -230,13 +230,15 @@ class StyleResolver:
 
 def _fill_word_defaults(result: dict) -> None:
     """Replace "unset" values with Word's built-in defaults (source "word-default").
-    Keys are "font"/"size"/"align" or "<group>.<attr>" for spacing/indent."""
+    Keys are "font"/"size"/"align" or "<group>.<attr>" for spacing/indent.
+    A value some level DID set but that could not be read (a theme font missing
+    from theme1.xml) already has a source, so it stays "unset"."""
     for key, default in WORD_DEFAULTS.items():
         group, _, attr = key.partition(".")
         if group not in result:
             continue
         holder, name = (result[group], attr) if attr else (result, group)
-        if holder[name] == UNSET:
+        if holder[name] == UNSET and key not in result["sources"]:
             holder[name] = default
             result["sources"][key] = WORD_DEFAULT
 

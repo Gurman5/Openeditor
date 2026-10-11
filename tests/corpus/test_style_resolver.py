@@ -22,8 +22,9 @@ W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
-def _make_docx(path, body_xml, styles_xml, major=None, minor=None):
-    """A real .docx (python-docx) with our own <w:body>, styles.xml and theme fonts."""
+def _make_docx(path, body_xml, styles_xml, major=None, minor=None, drop_theme=False):
+    """A real .docx (python-docx) with our own <w:body>, styles.xml and theme fonts
+    (or no theme part at all with drop_theme=True)."""
     Document().save(path)
     with zipfile.ZipFile(path) as z:
         parts = {n: z.read(n) for n in z.namelist()}
@@ -39,6 +40,8 @@ def _make_docx(path, body_xml, styles_xml, major=None, minor=None):
             theme.find(f".//{{{A_NS}}}{kind}/{{{A_NS}}}latin").set("typeface", family)
     parts["word/theme/theme1.xml"] = etree.tostring(theme, xml_declaration=True,
                                                     encoding="UTF-8", standalone=True)
+    if drop_theme:
+        del parts["word/theme/theme1.xml"]
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in parts.items():
@@ -196,6 +199,15 @@ def test_docdefaults_used_when_no_style_sets_value(tmp_path):
     assert eff["units"]["line_multiple"] == 1.15
     assert eff["units"]["after_pt"] == 10.0
     assert eff["sources"]["spacing.before"] == WORD_DEFAULT   # docDefaults didn't set it
+
+
+def test_missing_theme_font_stays_unset_not_word_default(tmp_path):
+    styles = _style("Normal", '<w:rPr><w:rFonts w:asciiTheme="minorHAnsi"/></w:rPr>', default=True)
+    view = _make_docx(tmp_path / "nt.docx", _p(), styles, drop_theme=True)
+    eff = resolve_effective(_first_run(view), view)
+    assert eff["font"] == UNSET
+    assert eff["sources"]["font"] == "style:Normal (theme minorHAnsi)"
+    assert eff["size"] == "20"     # size was never set, so Word's default still applies
 
 
 def test_style_beats_docdefaults(tmp_path):
