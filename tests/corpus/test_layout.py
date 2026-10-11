@@ -54,7 +54,7 @@ BODY = "Forty students"          # a plain body paragraph in the fixture
 
 def test_fixture_passes_all_layout_checks(good):
     result = check_layout(good)
-    assert set(result) == {"APA-00", "APA-01", "APA-03", "APA-04"}
+    assert set(result) == {"APA-00", "APA-01", "APA-03", "APA-04", "APA-05"}
     for row in result.values():
         assert row["status"] == "pass", row
 
@@ -206,7 +206,7 @@ def test_non_body_paragraphs_are_not_flagged(good, text, left_in):
 # ---------------- registry + CLI ----------------
 
 def test_registry_names_and_subset(good):
-    assert list(CHECKS) == ["margins", "spacing", "align", "indent"]
+    assert list(CHECKS) == ["margins", "spacing", "align", "indent", "pagenum"]
     assert set(check_layout(good, ["margins", "align"])) == {"APA-00", "APA-03"}
     with pytest.raises(ValueError):
         check_layout(good, ["nope"])

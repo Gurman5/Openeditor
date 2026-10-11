@@ -15,7 +15,8 @@ APA-04 indent:    body paragraphs have a 0.5" first-line indent. Not body:
                   are checked.
 
 For the harness (Person A wires these in; harness.py is not edited here):
-  CHECKS = {"margins": ..., "spacing": ..., "align": ..., "indent": ...}
+  CHECKS = {"margins": ..., "spacing": ..., "align": ..., "indent": ...,
+            "pagenum": ...}   (pagenum = APA-05, in checks/page_numbers.py)
   check_layout(doc, checks=None) runs all of them, or the names given.
 
 Margin tolerance (default 0 = exactly 1"):
@@ -36,6 +37,7 @@ from pathlib import Path
 
 from tools.corpus.checks.abstract import find_abstract
 from tools.corpus.checks.headings import find_headings, is_section_label
+from tools.corpus.checks.page_numbers import check_page_numbers
 from tools.corpus.docx_view import AcceptedView, ParagraphView, accepted_view, w
 from tools.corpus.style_resolver import resolve_paragraph
 
@@ -254,6 +256,7 @@ CHECKS = {
     "spacing": check_spacing,
     "align": check_alignment,
     "indent": check_indent,
+    "pagenum": check_page_numbers,
 }
 
 
@@ -269,7 +272,7 @@ def check_layout(doc, checks: list[str] | None = None) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="APA-00/01/03/04 layout checks")
+    ap = argparse.ArgumentParser(description="APA-00/01/03/04/05 layout checks")
     ap.add_argument("--docx", required=True, help="path to a .docx file")
     ap.add_argument("--checks", help=f"comma list from {','.join(CHECKS)} (default: all)")
     args = ap.parse_args(argv)
