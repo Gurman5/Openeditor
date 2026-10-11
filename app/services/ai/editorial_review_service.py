@@ -5,7 +5,7 @@ from app.domain.editorial_feedback import (
     EditorialReviewResult,
     StructuralValidation,
 )
-from app.services.ai.llm_client import call_llm
+from app.services.ai.llm_client import LLMError, call_llm
 from app.services.ai.prompt_builder import build_prompts
 from app.services.document_analysis_services import load_paragraphs, parse_docx_structure
 
@@ -34,8 +34,10 @@ def run_editorial_review(
     docx_path: str,
     deterministic_check_result: dict | None = None,
     ref_check_result: dict | None = None,
+    raise_on_error: bool = True,
 ) -> EditorialReviewResult:
     """Run LLM-based editorial review on an APA7 manuscript.
+    raise_on_error=False returns an empty result with the error in .error instead of raising.
 
     Pipeline:
     1. Parse DOCX into paragraphs + structure
@@ -50,7 +52,12 @@ def run_editorial_review(
     system_prompt, user_prompt = build_prompts(
         paragraphs, parsed, deterministic_check_result, ref_check_result
     )
-    raw_result = call_llm(system_prompt, user_prompt)
+    try:
+        raw_result = call_llm(system_prompt, user_prompt)
+    except LLMError as e:
+        if raise_on_error:
+            raise
+        return EditorialReviewResult(notes=[], error=str(e))
 
     notes = [
         EditorialNote(

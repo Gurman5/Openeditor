@@ -25,3 +25,4 @@ class EditorialReviewResult:
     structural_validations: list[StructuralValidation] = field(default_factory=list)
     model_used: str = ""
     token_usage: dict = field(default_factory=dict)
+    error: str = ""

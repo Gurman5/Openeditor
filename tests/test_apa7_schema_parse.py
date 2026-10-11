@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 from app.domain.editorial_feedback import EditorialNote, StructuralValidation
 from app.services.ai.editorial_review_service import run_editorial_review
-
+from app.services.ai.llm_client import LLMError
+import pytest
 PACK = "tests/jutlp_sample_docx_test_pack"
 
 
@@ -17,8 +18,26 @@ def _response(structural_validations=None, notes=None):
     if structural_validations is not None:
         payload["structural_validations"] = structural_validations
     return payload
+def _raising():
+    def _call(system_prompt, user_prompt):
+        raise LLMError("simulated outage")
+    return _call
 
+class TestLLMDownResilience:
+    @patch("app.services.ai.editorial_review_service.call_llm")
+    def test_raises_by_default(self, mock_call_llm):
+        mock_call_llm.side_effect = _raising()
+        with pytest.raises(LLMError):
+            run_editorial_review(f"{PACK}/01_valid_identified.docx")
 
+    @patch("app.services.ai.editorial_review_service.call_llm")
+    def test_returns_error_result_when_not_raising(self, mock_call_llm):
+        mock_call_llm.side_effect = _raising()
+        result = run_editorial_review(
+            f"{PACK}/01_valid_identified.docx", raise_on_error=False
+        )
+        assert result.notes == []
+        assert "simulated outage" in result.error
 class TestStructuralValidationParsing:
     @patch("app.services.ai.editorial_review_service.call_llm")
     def test_all_verdicts_parsed(self, mock_call_llm):

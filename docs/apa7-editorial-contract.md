@@ -140,6 +140,7 @@ confirm).
         "completion_tokens": int,
         "total_tokens": int,
     },
+    "error": str,
 }
 ```
 
@@ -148,9 +149,10 @@ confirm).
 - `call_llm` raises `LLMError` after `MAX_RETRIES` (3) attempts with exponential
   backoff, or on JSON parse failure / truncated (`finish_reason == "length"`)
   responses.
-- `run_editorial_review` propagates `LLMError` to its caller. The pipeline boundary
-  is responsible for recording the failure in `stage_errors` (see D-14). The review
-  stage never returns a silent partial result on failure.
+- `run_editorial_review` takes `raise_on_error` (default `True`). When `True`,
+  `LLMError` propagates to the caller; the pipeline boundary records the failure
+  in `stage_errors`. When `False`, the call returns
+  `EditorialReviewResult(notes=[], error="<message>")` instead of raising.
 - A truncated response is a hard failure (raises), never silently accepted.
 
 ## 6. Notes
