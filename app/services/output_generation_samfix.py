@@ -30,6 +30,7 @@ from app.services.output_filename import build_output_filename_from_author_line
 from app.services.quotation_utils import find_quote_spans
 from app.services.run_font_corrections import apply_run_font_corrections
 from app.services.timestamps import now_sydney_iso
+from app.services import config as _APA7_CONFIG
 
 
 def normalize_marker(marker: str) -> str:
@@ -3789,13 +3790,18 @@ def build_citation_check_plan(docxpath):
 
 
 #document body constants -------------------------------------------------------------------------------
-BODY_REQUIRED_FONT_NAME = "Arial"
+BODY_REQUIRED_FONT_NAME = _APA7_CONFIG.DEFAULT_FONT
 BODY_REQUIRED_FONT_SIZE_PT = 11.0
 BODY_REQUIRED_FONT_SIZE_XML = "22"
-BODY_REQUIRED_LINE_SPACING = 1.15
-BODY_REQUIRED_LINE_SPACING_XML = "276"
-BODY_REQUIRED_SPACE_AFTER_XML = "120"
 BODY_REQUIRED_STYLE = "Normal"
+
+# APA 7 body geometry (C-22a / C-22b). Single source of truth is
+# app.services.config; these aliases keep the XML passes readable.
+APA_MARGIN_TWIPS = _APA7_CONFIG.APA_MARGIN_TWIPS                    # 1440 = 1in (APA-00)
+APA_SPACE_AFTER_TWIPS = _APA7_CONFIG.APA_SPACE_AFTER_TWIPS          # 0 (APA-01)
+APA_DOUBLE_SPACING_TWIPS = _APA7_CONFIG.DOUBLE_SPACING_TWIPS        # 480 = double (APA-01)
+APA_FIRST_LINE_INDENT_TWIPS = _APA7_CONFIG.APA_FIRST_LINE_INDENT_TWIPS  # 720 = 0.5in (APA-04)
+APA_LINE_SPACING_MULTIPLE = 2.0  # python-docx line_spacing value for line=480 auto (APA-01)
 
 # Styles that are never body prose — skip when checking paragraph development.
 _PARA_DEV_SKIP_STYLES = frozenset({
@@ -4001,8 +4007,8 @@ def _is_missing_required_subheading_issue(issue):
 def _body_alignment_ok(doc_paragraph):
     alignment = doc_paragraph.alignment
     if alignment is None:
-        return True  # inherits from Normal style (expected to be justified)
-    if alignment == WD_ALIGN_PARAGRAPH.JUSTIFY:
+        return True  # inherits from Normal style (left, APA-03)
+    if alignment == WD_ALIGN_PARAGRAPH.LEFT:
         return True
     return False
 
@@ -4015,7 +4021,7 @@ def _body_line_spacing_ok(doc_paragraph):
 
     if isinstance(spacing, float) or isinstance(spacing, int):
         value = float(spacing)
-        if abs(value - BODY_REQUIRED_LINE_SPACING) <= 0.05:
+        if abs(value - APA_LINE_SPACING_MULTIPLE) <= 0.05:
             return True
         return False
 
@@ -4026,7 +4032,7 @@ def _body_spacing_ok(doc_paragraph):
     before = doc_paragraph.paragraph_format.space_before
     after = doc_paragraph.paragraph_format.space_after
     before_ok = before is None or abs(float(before.pt)) <= 0.1
-    after_ok = after is None or abs(float(after.pt) - 6.0) <= 0.1
+    after_ok = after is None or abs(float(after.pt)) <= 0.1
     return before_ok and after_ok
 
 
@@ -4049,11 +4055,22 @@ def _is_zero_indent_length(length_value):
 #indent check for body text paragraphs
 def _body_indent_ok(doc_paragraph):
     left_indent_ok = _is_zero_indent_length(doc_paragraph.paragraph_format.left_indent)
-    first_line_indent_ok = _is_zero_indent_length(doc_paragraph.paragraph_format.first_line_indent)
+
+    # APA-04: 0.5in (720 twips = 36pt) first-line indent. No direct formatting
+    # means the paragraph inherits the APA Normal style, which already carries
+    # firstLine=720, so only an explicit non-conforming indent needs a fix.
+    first_line = doc_paragraph.paragraph_format.first_line_indent
+    if first_line is None:
+        first_line_ok = True
+    else:
+        try:
+            first_line_ok = abs(float(first_line.pt) - 36.0) <= 0.5
+        except Exception:
+            first_line_ok = False
 
     if left_indent_ok is False:
         return False
-    if first_line_indent_ok is False:
+    if first_line_ok is False:
         return False
     return True
 
@@ -8167,6 +8184,213 @@ def _find_or_make_child(parent_element, child_tag):
     return child
 
 
+# APA-00 / APA-05 helpers (C-22a / C-22b) ---------------------------------------
+
+# sectPr children that must follow pgMar, so a missing pgMar lands in schema order.
+_SECTPR_AFTER_PGMAR = (
+    f"{WQ}pgBorders",
+    f"{WQ}lnNumType",
+    f"{WQ}pgNumType",
+    f"{WQ}cols",
+    f"{WQ}formProt",
+    f"{WQ}vAlign",
+    f"{WQ}noEndnote",
+    f"{WQ}titlePg",
+    f"{WQ}textDirection",
+    f"{WQ}bidi",
+    f"{WQ}rtlGutter",
+    f"{WQ}docGrid",
+    f"{WQ}printerSettings",
+    f"{WQ}sectPrChange",
+)
+
+
+def _find_or_make_pg_mar(sect_pr):
+    pg_mar = sect_pr.find(f"{WQ}pgMar")
+    if pg_mar is not None:
+        return pg_mar
+    pg_mar = etree.Element(f"{WQ}pgMar")
+    for tag in _SECTPR_AFTER_PGMAR:
+        existing = sect_pr.find(tag)
+        if existing is not None:
+            existing.addprevious(pg_mar)
+            return pg_mar
+    sect_pr.append(pg_mar)
+    return pg_mar
+
+
+def _apply_apa_section_margins(sect_pr, change_id):
+    """APA-00: force 1in margins on all four sides, as a tracked sectPrChange."""
+    pg_mar = sect_pr.find(f"{WQ}pgMar")
+    needs_change = pg_mar is None
+    if pg_mar is not None:
+        for side in ("top", "right", "bottom", "left"):
+            if pg_mar.get(f"{WQ}{side}") != APA_MARGIN_TWIPS:
+                needs_change = True
+                break
+    if needs_change is False:
+        return False
+
+    # snapshot the pre-change state before mutating, so the tracked change
+    # records the margins the author actually had.
+    old_sect_pr = _copy_properties_without_change(
+        sect_pr, f"{WQ}sectPr", f"{WQ}sectPrChange"
+    )
+
+    pg_mar = _find_or_make_pg_mar(sect_pr)
+    for side in ("top", "right", "bottom", "left"):
+        pg_mar.set(f"{WQ}{side}", APA_MARGIN_TWIPS)
+
+    _remove_tracked_property_change(sect_pr, f"{WQ}sectPrChange")
+    sect_pr_change = etree.SubElement(sect_pr, f"{WQ}sectPrChange")
+    _set_tracked_change_details(sect_pr_change, change_id)
+    sect_pr_change.append(old_sect_pr)
+    return True
+
+
+def _find_header_reference(sect_pr, ref_type):
+    for header_ref in sect_pr.findall(f"{WQ}headerReference"):
+        if header_ref.get(f"{WQ}type", "") == ref_type:
+            return header_ref
+    return None
+
+
+def _ensure_header_reference(sect_pr, rels_root, names, ref_type):
+    """Return ``(part_name, created)`` for a header of the given reference type."""
+    header_ref = _find_header_reference(sect_pr, ref_type)
+    if header_ref is not None:
+        target = _find_relationship_target(rels_root, header_ref.get(f"{RQ}id", ""))
+        if target != "":
+            return _normalise_docx_target(target), False
+
+    header_name = _next_header_name(names)
+    rel_id = _next_relationship_id(rels_root)
+
+    new_rel = etree.SubElement(rels_root, f"{PACKAGE_REL_Q}Relationship")
+    new_rel.set("Id", rel_id)
+    new_rel.set("Type", HEADER_REL_TYPE)
+    new_rel.set("Target", header_name.replace("word/", ""))
+
+    new_ref = etree.Element(f"{WQ}headerReference")
+    new_ref.set(f"{WQ}type", ref_type)
+    new_ref.set(f"{RQ}id", rel_id)
+    sect_pr.insert(0, new_ref)
+    return header_name, True
+
+
+def _make_page_number_header(header_xml):
+    """Return header XML carrying a right-aligned PAGE field (APA-05).
+
+    Existing header content is preserved; the PAGE paragraph is only appended
+    when the header does not already contain a PAGE field.
+    """
+    if header_xml is None:
+        hdr_root = etree.Element(f"{WQ}hdr", nsmap={"w": W})
+    else:
+        hdr_root = etree.fromstring(header_xml)
+
+    for field in hdr_root.iter(f"{WQ}fldSimple"):
+        if "PAGE" in field.get(f"{WQ}instr", ""):
+            return etree.tostring(
+                hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True
+            )
+
+    paragraph = etree.SubElement(hdr_root, f"{WQ}p")
+    p_pr = etree.SubElement(paragraph, f"{WQ}pPr")
+    jc = etree.SubElement(p_pr, f"{WQ}jc")
+    jc.set(f"{WQ}val", "right")
+
+    field = etree.SubElement(paragraph, f"{WQ}fldSimple")
+    field.set(f"{WQ}instr", " PAGE ")
+    run = etree.SubElement(field, f"{WQ}r")
+    r_pr = etree.SubElement(run, f"{WQ}rPr")
+    r_fonts = etree.SubElement(r_pr, f"{WQ}rFonts")
+    for attr in ("ascii", "hAnsi", "cs"):
+        r_fonts.set(f"{WQ}{attr}", BODY_REQUIRED_FONT_NAME)
+    size = etree.SubElement(r_pr, f"{WQ}sz")
+    size.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
+    text = etree.SubElement(run, f"{WQ}t")
+    text.text = "1"
+
+    return etree.tostring(hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _apply_apa_body_geometry(input_path, output_path, change_id):
+    """APA-00 margins and APA-05 running page number (C-22a / C-22b).
+
+    Every section is forced to 1in margins on all four sides, recorded as a
+    tracked ``sectPrChange``. A right-aligned PAGE field is installed in the
+    running header; both the ``default`` and ``first`` header references are
+    created so the page number survives whether or not another pass later
+    enables ``titlePg``.
+    """
+    with zipfile.ZipFile(input_path, "r") as z:
+        names = z.namelist()
+        parts = {}
+        for item in z.infolist():
+            parts[item.filename] = z.read(item.filename)
+
+    if "word/document.xml" not in parts or "word/_rels/document.xml.rels" not in parts:
+        return False
+
+    doc_root = etree.fromstring(parts["word/document.xml"])
+    rels_root = etree.fromstring(parts["word/_rels/document.xml.rels"])
+    body = doc_root.find(f"{WQ}body")
+    if body is None:
+        return False
+
+    changed = False
+
+    # Snapshot the real sections before mutating: sectPrChange nests a copy of
+    # the old sectPr, and iterating the live tree would otherwise pick those
+    # copies up as if they were further sections.
+    real_sections = list(body.findall(f"{WQ}sectPr"))
+    real_sections.extend(body.findall(f".//{WQ}pPr/{WQ}sectPr"))
+
+    next_id = change_id
+    for sect_pr in real_sections:
+        if _apply_apa_section_margins(sect_pr, next_id) is True:
+            changed = True
+        next_id += 1
+
+    ct_xml = parts.get("[Content_Types].xml")
+    for ref_type in ("default", "first"):
+        sect_pr = _first_section_properties(doc_root)
+        if sect_pr is None:
+            sect_pr = etree.SubElement(body, f"{WQ}sectPr")
+        header_name, _created = _ensure_header_reference(sect_pr, rels_root, names, ref_type)
+        if header_name == "":
+            continue
+        old_header = parts.get(header_name)
+        new_header = _make_page_number_header(old_header)
+        if new_header != old_header:
+            parts[header_name] = new_header
+            changed = True
+        if header_name not in names:
+            names.append(header_name)
+        if ct_xml is not None:
+            ct_xml = _patch_header_content_type(ct_xml, header_name)
+
+    if changed is False:
+        return False
+
+    parts["word/document.xml"] = etree.tostring(
+        doc_root, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    parts["word/_rels/document.xml.rels"] = etree.tostring(
+        rels_root, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    if ct_xml is not None:
+        parts["[Content_Types].xml"] = ct_xml
+
+    tmp_path = output_path + ".tmp"
+    with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for name, data in parts.items():
+            zout.writestr(name, data)
+    os.replace(tmp_path, output_path)
+    return True
+
+
 def _apply_tracked_body_paragraph_format(para_element, fix, change_id):
     p_pr = para_element.find(f"{WQ}pPr")
     old_p_pr = _copy_properties_without_change(p_pr, f"{WQ}pPr", f"{WQ}pPrChange")
@@ -8179,20 +8403,20 @@ def _apply_tracked_body_paragraph_format(para_element, fix, change_id):
 
     if fix.get("alignment") is True:
         jc = _find_or_make_child(p_pr, f"{WQ}jc")
-        jc.set(f"{WQ}val", "both")
+        jc.set(f"{WQ}val", "left")
 
     if fix.get("line_spacing") is True or fix.get("spacing") is True:
         spacing = _find_or_make_child(p_pr, f"{WQ}spacing")
-        spacing.set(f"{WQ}line", BODY_REQUIRED_LINE_SPACING_XML)
+        spacing.set(f"{WQ}line", APA_DOUBLE_SPACING_TWIPS)
         spacing.set(f"{WQ}lineRule", "auto")
-        spacing.set(f"{WQ}after", BODY_REQUIRED_SPACE_AFTER_XML)
+        spacing.set(f"{WQ}after", APA_SPACE_AFTER_TWIPS)
         spacing.set(f"{WQ}before", "0")
 
     if fix.get("indent") is True:
         ind = _find_or_make_child(p_pr, f"{WQ}ind")
         ind.set(f"{WQ}left", "0")
         ind.set(f"{WQ}start", "0")
-        ind.set(f"{WQ}firstLine", "0")
+        ind.set(f"{WQ}firstLine", APA_FIRST_LINE_INDENT_TWIPS)
         if f"{WQ}hanging" in ind.attrib:
             del ind.attrib[f"{WQ}hanging"]
         if f"{WQ}hangingChars" in ind.attrib:
@@ -9622,6 +9846,12 @@ def build_edited_document(input_path, output_path=None):
 
     normal_style_applied = _apply_normal_style_fix(current_input_path, output_path)
     if normal_style_applied is True:
+        current_input_path = output_path
+        applied_any = True
+
+    # C-22a / C-22b: APA 1in margins (APA-00) + running PAGE header (APA-05).
+    apa_geometry_applied = _apply_apa_body_geometry(current_input_path, output_path, 9600)
+    if apa_geometry_applied is True:
         current_input_path = output_path
         applied_any = True
 

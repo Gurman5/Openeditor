@@ -218,25 +218,32 @@ def apply_page_margins(doc):
 
 
 def apply_page_numbers(doc):
-    """APA-05: page number top-right on every page, incl. title page."""
-    header = doc.sections[0].header
-    header_para = header.paragraphs[0]
-    header_para.clear()
-    header_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    fld = OxmlElement("w:fldSimple")
-    fld.set(qn("w:instr"), "PAGE")
-    r = OxmlElement("w:r")
-    rPr = OxmlElement("w:rPr")
-    rFonts = OxmlElement("w:rFonts")
-    for attr in ("ascii", "hAnsi", "cs"):
-        rFonts.set(qn(f"w:{attr}"), "Calibri")
-    sz = OxmlElement("w:sz")
-    sz.set(qn("w:val"), "22")  # 11pt
-    rPr.append(rFonts)
-    rPr.append(sz)
-    r.append(rPr)
-    fld.append(r)
-    header_para._p.append(fld)
+    """APA-05: page number top-right on every page, incl. title page.
+
+    ``different_first_page_header_footer`` is enabled so the title page gets its
+    own header part, and the PAGE field is written into *both* the default and
+    the first header — otherwise the title page would lose its number.
+    """
+    section = doc.sections[0]
+    section.different_first_page_header_footer = True
+    for header in (section.header, section.first_page_header):
+        header_para = header.paragraphs[0]
+        header_para.clear()
+        header_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        fld = OxmlElement("w:fldSimple")
+        fld.set(qn("w:instr"), "PAGE")
+        r = OxmlElement("w:r")
+        rPr = OxmlElement("w:rPr")
+        rFonts = OxmlElement("w:rFonts")
+        for attr in ("ascii", "hAnsi", "cs"):
+            rFonts.set(qn(f"w:{attr}"), "Calibri")
+        sz = OxmlElement("w:sz")
+        sz.set(qn("w:val"), "22")  # 11pt
+        rPr.append(rFonts)
+        rPr.append(sz)
+        r.append(rPr)
+        fld.append(r)
+        header_para._p.append(fld)
 
 
 def _centered(doc, text, style_name="Normal"):
