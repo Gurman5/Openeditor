@@ -10,6 +10,7 @@ import pytest
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Inches
 from docx.text.paragraph import Paragraph
 
@@ -160,6 +161,55 @@ def test_level4_on_its_own_line_fails(good):
                                         [("Recruitment Method", True, False)], style="Heading 4"))
     problems = _problems(check_headings(good), "Recruitment Method")
     assert "Level 4 headings should run in with the paragraph text" in problems
+
+
+# ---------------- numbered headings ----------------
+
+@pytest.mark.parametrize("text, found", [
+    ("1. Method", '"1."'),
+    ("2.1 Method", '"2.1"'),
+    ("IV. Method", '"IV."'),
+    ("A. Method", '"A."'),
+])
+def test_typed_heading_number_fails(good, text, found):
+    _edit(good, lambda d: setattr(_find(d, "Method").runs[0], "text", text))
+    problems = _problems(check_headings(good), text)
+    assert problems == [f"heading should not be numbered (typed {found})"]
+
+
+def test_year_at_start_of_heading_is_not_numbering(good):
+    _edit(good, lambda d: setattr(_find(d, "Results").runs[0], "text", "2020 Survey Results"))
+    assert check_headings(good)["APA-11"]["status"] == "pass"
+
+
+def _num_pr(num_id="1"):
+    num = OxmlElement("w:numPr")
+    ilvl, nid = OxmlElement("w:ilvl"), OxmlElement("w:numId")
+    ilvl.set(qn("w:val"), "0")
+    nid.set(qn("w:val"), num_id)
+    num.extend([ilvl, nid])
+    return num
+
+
+def test_automatic_numbering_on_paragraph_fails(good):
+    _edit(good, lambda d: _find(d, "Method")._p.get_or_add_pPr().insert(1, _num_pr()))
+    assert _problems(check_headings(good), "Method") == [
+        "heading should not be numbered (automatic list numbering from direct)"]
+
+
+def test_automatic_numbering_from_style_fails(good):
+    def change(doc):
+        style_ppr = doc.styles["Heading 1"].element.get_or_add_pPr()
+        style_ppr.insert(0, _num_pr())
+    _edit(good, change)
+    problems = _problems(check_headings(good), "Method")
+    assert problems == ["heading should not be numbered (automatic list numbering from "
+                        "style:Heading1)"]
+
+
+def test_numbering_switched_off_with_num_id_zero_passes(good):
+    _edit(good, lambda d: _find(d, "Method")._p.get_or_add_pPr().insert(1, _num_pr("0")))
+    assert check_headings(good)["APA-11"]["status"] == "pass"
 
 
 # ---------------- not headings ----------------

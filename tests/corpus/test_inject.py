@@ -41,7 +41,7 @@ def _changed(before: dict, after: dict) -> set:
 def test_registry_comes_from_format_defects():
     from tools.corpus.defects.format_defects import FORMAT_RECIPES
     assert set(RECIPES) == {"APA-03", "APA-00", "APA-01", "APA-04", "APA-02a", "APA-02b",
-                            "APA-05"}
+                            "APA-05", "APA-11a", "APA-11b", "APA-08a", "APA-08b", "APA-08c"}
     assert RECIPES["APA-03"] is FORMAT_RECIPES["APA-03"]
     assert {RECIPES[r].matrix_id for r in ("APA-02a", "APA-02b")} == {"APA-02"}
 
@@ -191,6 +191,56 @@ def test_header_edit_is_byte_identical(base, tmp_path):
     a = inject(base, ["APA-05", "APA-02b"], tmp_path / "a.docx", seed=4)
     b = inject(base, ["APA-05", "APA-02b"], tmp_path / "b.docx", seed=4)
     assert a["sha256"] == b["sha256"]
+
+
+# ---------------- K-I3a structure recipes ----------------
+
+@pytest.mark.parametrize("recipe, row", [
+    ("APA-11a", "APA-11"),
+    ("APA-11b", "APA-11"),
+    ("APA-08a", "APA-08"),
+    ("APA-08b", "APA-08"),
+])
+def test_k_i3a_recipe_breaks_exactly_its_row(base, tmp_path, recipe, row):
+    out = tmp_path / f"{recipe}.docx"
+    result = inject(base, [recipe], out)
+    after = all_statuses(out)
+    assert after[row] == "fail"
+    assert _changed(all_statuses(base), after) == {row}
+    assert result["verdicts"] == {row: "fail"}
+    assert result["check_options"] == {}
+
+
+def test_numbered_headings_recipe(base, tmp_path):
+    out = tmp_path / "numbered.docx"
+    row = inject(base, ["APA-11a"], out)
+    assert [h["text"] for h in row["injections"][0]["headings"]] == [
+        "1. Method", "2. Results", "3. Discussion"]
+    problems = [p for h in check_headings(accepted_view(out))["APA-11"]["headings"]
+                for p in h["problems"]]
+    assert problems == ['heading should not be numbered (typed "1.")',
+                        'heading should not be numbered (typed "2.")',
+                        'heading should not be numbered (typed "3.")']
+
+
+def test_long_abstract_recipe_goes_over_250(base, tmp_path):
+    out = tmp_path / "long.docx"
+    row = inject(base, ["APA-08a"], out)
+    words = check_abstract(accepted_view(out))["APA-08"]["subchecks"]["word_count"]["words"]
+    assert words == row["injections"][0]["words_after"]
+    assert words > 260
+
+
+def test_missing_abstract_declares_its_side_effect(base, tmp_path):
+    out = tmp_path / "noabstract.docx"
+    row = inject(base, ["APA-08c"], out)
+    assert row["verdicts"] == {"APA-08": "fail", "APA-09": "na"}
+    assert row["check_options"] == {"APA-08": {"require_abstract": True}}
+    # Default grading says na; grading with the row's check_options says fail.
+    assert check_abstract(accepted_view(out))["APA-08"]["status"] == "na"
+    assert check_abstract(accepted_view(out), require_abstract=True)["APA-08"]["status"] == "fail"
+    # Nothing else changes besides the two declared rows.
+    assert _changed(all_statuses(base), all_statuses(out)) == {"APA-08", "APA-09"}
 
 
 # ---------------- refusals ----------------

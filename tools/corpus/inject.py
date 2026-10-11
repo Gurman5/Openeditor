@@ -18,8 +18,11 @@ style only when asked for). An explicit --where applies to every chosen
 recipe that supports it; the others keep their default.
 
 The row is printed as JSON. Field names follow the K-S2 manifest schema where
-they apply; "verdicts" only lists the injected rows (expected "fail") - the
-other rows come from the base document's own manifest row.
+they apply; "verdicts" lists the injected rows (expected "fail") plus any
+declared side effects (e.g. APA-09 "na" when the abstract is removed) - the
+other rows come from the base document's own manifest row. "check_options"
+says how to grade a row the way the recipe's check does, e.g.
+{"APA-08": {"require_abstract": true}}.
 
 Safety:
   - the base must have no tracked changes and must PASS every targeted row
@@ -39,10 +42,12 @@ from pathlib import Path
 
 from lxml import etree
 
-from tools.corpus.defects.format_defects import DOC, FORMAT_RECIPES
+from tools.corpus.defects.common import DOC
+from tools.corpus.defects.format_defects import FORMAT_RECIPES
+from tools.corpus.defects.struct_defects import STRUCT_RECIPES
 from tools.corpus.docx_view import accepted_view, parse_xml, read_parts, w
 
-RECIPES = {**FORMAT_RECIPES}
+RECIPES = {**FORMAT_RECIPES, **STRUCT_RECIPES}
 WHERE_CHOICES = ("style", "paragraph")
 _FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 
@@ -137,11 +142,17 @@ def inject(base: str | Path, defects: list[str], out: str | Path, *, seed: int =
         if still_passing:
             raise InjectionError(f"injection did not make {still_passing} fail")
 
+    verdicts = {}
+    for r in recipes:
+        verdicts.update(r.side_effects)       # e.g. APA-09 "na" when the abstract goes
+    verdicts.update({r.matrix_id: "fail" for r in recipes})
+    check_options = {mid: opts for r in recipes for mid, opts in r.check_options.items()}
     return {
         "id": f"{base.stem}__{'+'.join(defects)}__s{seed}",
         "derived_from": base.name,
         "defects_injected": [r.matrix_id for r in recipes],
-        "verdicts": {r.matrix_id: "fail" for r in recipes},
+        "verdicts": verdicts,
+        "check_options": check_options,
         "injections": injections,
         "seed": seed,
         "where": where,

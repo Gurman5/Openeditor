@@ -8,6 +8,8 @@ APA-11: heading formatting by level:
           L3 flush left, bold italic         (own paragraph)
           L4 indented 0.5", bold, ends "."   (run-in: starts a body paragraph)
           L5 indented 0.5", bold italic, "." (run-in)
+        Headings must not be numbered: typed ("1. Method", "2.1 Participants",
+        "IV. Results") or automatic list numbering (w:numPr) both fail.
         Title case is reported as info only (small words and proper nouns
         can't be judged reliably), never a fail.
 
@@ -41,6 +43,10 @@ from tools.corpus.style_resolver import get_resolver, resolve_emphasis, resolve_
 SECTION_LABELS = {"abstract", "references", "author note", "footnotes", "tables",
                   "figures", "appendix"}
 _APPENDIX_RE = re.compile(r"appendix(\s+[a-z0-9]+)?")
+
+# "1." "1.2" "1.2.3" "IV." "A." followed by a space. A plain year ("2020 Survey")
+# has no period or second number, so it does not match.
+_NUMBERED_RE = re.compile(r"\s*(\d+\.(?:\d+\.?)*|\d+(?:\.\d+)+|[IVXLCDM]+\.|[A-Z]\.)\s")
 
 RUN_IN_INDENT_IN = 0.5
 # Expected formatting per level: (align, bold, italic, first_line_in, run_in)
@@ -99,6 +105,23 @@ def _run_in_heading(p: ParagraphView, view: AcceptedView):
     return [r for r in heading_runs if r.text.strip()], heading.strip(), period_in_bold
 
 
+def _numbering(p: ParagraphView, view: AcceptedView, text: str) -> str | None:
+    """How a heading is numbered, or None. Typed numbers ("1. Method",
+    "2.1 Participants", "IV. Results", "A. Method") and Word's automatic list
+    numbering (w:numPr, direct or through the style chain) both count."""
+    match = _NUMBERED_RE.match(text)
+    if match:
+        return f'typed "{match.group(1)}"'
+    for src, ppr in get_resolver(view).paragraph_levels(p.element):
+        num = ppr.find(w("numPr"))
+        if num is not None:
+            num_id = num.find(w("numId"))
+            if num_id is not None and num_id.get(w("val")) != "0":   # numId 0 = none
+                return f"automatic list numbering from {src}"
+            return None
+    return None
+
+
 def _title_case_issues(text: str) -> list[str]:
     """Words APA would capitalise but that start lowercase: the first word and
     any word of 4+ letters."""
@@ -129,6 +152,9 @@ def _check_heading(view, p, level, found_by, runs, text, period_in_bold=True) ->
         problems.append("should not be italic")
     if run_in and found_by == "run-in" and not period_in_bold:
         problems.append("the ending period should be part of the bold heading")
+    numbering = _numbering(p, view, text)
+    if numbering:
+        problems.append(f"heading should not be numbered ({numbering})")
 
     return {"paragraph": p.index, "level": level, "text": text, "found_by": found_by,
             "status": "fail" if problems else "pass", "problems": problems,

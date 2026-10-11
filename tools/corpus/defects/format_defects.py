@@ -35,188 +35,27 @@ items are listed in the details.
 
 from __future__ import annotations
 
-import random
-from dataclasses import dataclass
-from typing import Callable
-
 from lxml import etree
 
 from tools.corpus.checks.abstract import find_abstract
 from tools.corpus.checks.fonts import check_fonts
-from tools.corpus.checks.headings import find_headings
-from tools.corpus.checks.layout import (
-    body_paragraphs, check_alignment, check_indent, check_margins, check_spacing,
-)
+from tools.corpus.checks.layout import check_alignment, check_indent, check_margins, check_spacing
 from tools.corpus.checks.page_numbers import (
     check_page_numbers, is_page_instruction, sections_in_use,
 )
 from tools.corpus.checks.refs import find_references
-from tools.corpus.docx_view import AcceptedView, w
+from tools.corpus.defects.common import (
+    DOC, STYLES, Recipe, choose_body, normal_style, own_runs, p_ppr, r_rpr,
+    raw_body_paragraphs, run_in_heading_paragraphs, set_first_line, set_font, set_jc,
+    set_spacing_line, style_ppr, style_rpr, two_modes,
+)
+from tools.corpus.docx_view import w
 from tools.corpus.style_resolver import StyleResolver, resolve_paragraph
 
-DOC = "word/document.xml"
-STYLES = "word/styles.xml"
-TARGET_PARAGRAPHS = 3
 BAD_LEFT_MARGIN_TWIPS = "1080"            # 0.75"
 SPACING_1_15 = "276"
 DISALLOWED_FONT = "Comic Sans MS"
 WRONG_SIZE_FONT, WRONG_SIZE_HALF_POINTS = "Arial", "24"     # Arial 12 pt
-
-
-@dataclass(frozen=True)
-class Recipe:
-    id: str                          # registry key, e.g. "APA-02a"
-    matrix_id: str                   # the row it breaks, e.g. "APA-02"
-    name: str
-    apply: Callable[[dict, random.Random, str, AcceptedView], dict]
-    check: Callable[[AcceptedView], dict]
-    default_where: str
-    wheres: tuple[str, ...]          # values this recipe accepts
-
-
-# --------------------------------------------------------------------------
-# XML helpers: insert children in OOXML schema order so Word opens the result
-# --------------------------------------------------------------------------
-
-_PPR_ORDER = [w(t) for t in (
-    "pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr", "widowControl",
-    "numPr", "suppressLineNumbers", "pBdr", "shd", "tabs", "suppressAutoHyphens",
-    "kinsoku", "wordWrap", "overflowPunct", "topLinePunct", "autoSpaceDE", "autoSpaceDN",
-    "bidi", "adjustRightInd", "snapToGrid", "spacing", "ind", "contextualSpacing",
-    "mirrorIndents", "suppressOverlap", "jc", "textDirection", "textAlignment",
-    "textboxTightWrap", "outlineLvl", "divId", "cnfStyle", "rPr", "sectPr", "pPrChange")]
-_RPR_ORDER = [w(t) for t in (
-    "rStyle", "rFonts", "b", "bCs", "i", "iCs", "caps", "smallCaps", "strike", "dstrike",
-    "outline", "shadow", "emboss", "imprint", "noProof", "snapToGrid", "vanish",
-    "webHidden", "color", "spacing", "w", "kern", "position", "sz", "szCs", "highlight",
-    "u", "effect", "bdr", "shd", "fitText", "vertAlign", "rtl", "cs", "em", "lang",
-    "eastAsianLayout", "specVanish", "oMath", "rPrChange")]
-_STYLE_ORDER = [w(t) for t in (
-    "name", "aliases", "basedOn", "next", "link", "autoRedefine", "hidden", "uiPriority",
-    "semiHidden", "unhideWhenUsed", "qFormat", "locked", "personal", "personalCompose",
-    "personalReply", "rsid", "pPr", "rPr", "tblPr", "trPr", "tcPr", "tblStylePr")]
-
-
-def _child(parent, tag: str, order: list[str]) -> etree._Element:
-    """Existing <tag> child of parent, or a new one inserted in schema order."""
-    qtag = w(tag)
-    found = parent.find(qtag)
-    if found is not None:
-        return found
-    el = etree.Element(qtag)
-    rank = order.index(qtag)
-    for i, existing in enumerate(parent):
-        if existing.tag in order and order.index(existing.tag) > rank:
-            parent.insert(i, el)
-            return el
-    parent.append(el)
-    return el
-
-
-def _p_ppr(p) -> etree._Element:
-    ppr = p.find(w("pPr"))
-    if ppr is None:
-        ppr = etree.Element(w("pPr"))
-        p.insert(0, ppr)                     # w:pPr is always first in w:p
-    return ppr
-
-
-def _r_rpr(r) -> etree._Element:
-    rpr = r.find(w("rPr"))
-    if rpr is None:
-        rpr = etree.Element(w("rPr"))
-        r.insert(0, rpr)                     # w:rPr is always first in w:r
-    return rpr
-
-
-def _style_ppr(style) -> etree._Element:
-    return _child(style, "pPr", _STYLE_ORDER)
-
-
-def _style_rpr(style) -> etree._Element:
-    return _child(style, "rPr", _STYLE_ORDER)
-
-
-def set_jc(ppr, value: str) -> None:
-    _child(ppr, "jc", _PPR_ORDER).set(w("val"), value)
-
-
-def _set_spacing_line(ppr, line: str, rule: str = "auto") -> None:
-    spacing = _child(ppr, "spacing", _PPR_ORDER)
-    spacing.set(w("line"), line)
-    spacing.set(w("lineRule"), rule)
-
-
-def _set_first_line(ppr, value: str) -> None:
-    ind = _child(ppr, "ind", _PPR_ORDER)
-    ind.attrib.pop(w("hanging"), None)
-    ind.set(w("firstLine"), value)
-
-
-def _set_font(rpr, family: str, half_points: str | None = None) -> None:
-    """Explicit font (theme font attributes removed so they can't win)."""
-    old = rpr.find(w("rFonts"))
-    if old is not None:
-        rpr.remove(old)
-    fonts = _child(rpr, "rFonts", _RPR_ORDER)
-    for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
-        fonts.set(w(attr), family)
-    if half_points is not None:
-        for tag in ("sz", "szCs"):
-            _child(rpr, tag, _RPR_ORDER).set(w("val"), half_points)
-
-
-# --------------------------------------------------------------------------
-# Choosing targets
-# --------------------------------------------------------------------------
-
-def _raw_body_paragraphs(document_root) -> list[etree._Element]:
-    """Body w:p in the same order as accepted_view (base has no tracked changes)."""
-    body = document_root.find(w("body"))
-    return [p for p in body.iter(w("p"))
-            if not any(a.tag == w("txbxContent") for a in p.iterancestors())]
-
-
-def _run_in_heading_paragraphs(base_view) -> set[int]:
-    _, _, headings = find_headings(base_view)
-    return {h["paragraph"] for h in headings if h["found_by"] == "run-in"}
-
-
-def _choose_body(base_view, rng) -> list[int]:
-    run_in = _run_in_heading_paragraphs(base_view)
-    candidates = [p.index for p in body_paragraphs(base_view) if p.index not in run_in]
-    if not candidates:
-        raise ValueError("base has no body paragraphs to change")
-    return sorted(rng.sample(candidates, min(TARGET_PARAGRAPHS, len(candidates))))
-
-
-def _own_runs(p) -> list[etree._Element]:
-    """Runs belonging to p (not to paragraphs nested inside it, e.g. text boxes)."""
-    runs = []
-    for r in p.iter(w("r")):
-        owner = r.getparent()
-        while owner is not None and owner.tag != w("p"):
-            owner = owner.getparent()
-        if owner is p:
-            runs.append(r)
-    return runs
-
-
-def _normal_style(roots, base_view) -> tuple[etree._Element, StyleResolver]:
-    resolver = StyleResolver(base_view.parts)
-    normal = resolver.default_paragraph_style
-    if normal is None:
-        raise ValueError("base has no default paragraph style")
-    style = next(s for s in roots[STYLES].iter(w("style")) if s.get(w("styleId")) == normal)
-    return style, resolver
-
-
-def _two_modes(where, paragraph_fn, style_fn, name):
-    if where == "paragraph":
-        return paragraph_fn()
-    if where == "style":
-        return style_fn()
-    raise ValueError(f"{name} recipe: where must be 'paragraph' or 'style', got {where!r}")
 
 
 # --------------------------------------------------------------------------
@@ -238,7 +77,7 @@ def _style_alignment(resolver: StyleResolver, style_id: str) -> tuple[str, str]:
 
 
 def _justify_style(roots, base_view) -> dict:
-    target, resolver = _normal_style(roots, base_view)
+    target, resolver = normal_style(roots, base_view)
     normal = target.get(w("styleId"))
     normal_align, _ = _style_alignment(resolver, normal)
 
@@ -251,24 +90,24 @@ def _justify_style(roots, base_view) -> dict:
             continue
         value, source = _style_alignment(resolver, sid)
         if source in (normal, "docDefaults", "word-default"):
-            set_jc(_style_ppr(style), value)
+            set_jc(style_ppr(style), value)
             pinned[sid] = value
 
-    set_jc(_style_ppr(target), "both")
+    set_jc(style_ppr(target), "both")
     return {"where": "style", "style": normal, "was": normal_align, "pinned_styles": pinned}
 
 
 def _justify_paragraphs(roots, rng, base_view) -> dict:
-    chosen = _choose_body(base_view, rng)
-    raw = _raw_body_paragraphs(roots[DOC])
+    chosen = choose_body(base_view, rng)
+    raw = raw_body_paragraphs(roots[DOC])
     for index in chosen:
-        set_jc(_p_ppr(raw[index]), "both")
+        set_jc(p_ppr(raw[index]), "both")
     return {"where": "paragraph", "paragraphs": chosen}
 
 
 def apply_justified(roots, rng, where, base_view) -> dict:
-    return _two_modes(where, lambda: _justify_paragraphs(roots, rng, base_view),
-                      lambda: _justify_style(roots, base_view), "APA-03")
+    return two_modes(where, lambda: _justify_paragraphs(roots, rng, base_view),
+                     lambda: _justify_style(roots, base_view), "APA-03")
 
 
 # --------------------------------------------------------------------------
@@ -294,25 +133,25 @@ def apply_bad_margin(roots, rng, where, base_view) -> dict:
 
 def apply_spacing_1_15(roots, rng, where, base_view) -> dict:
     def paragraphs():
-        chosen = _choose_body(base_view, rng)
-        raw = _raw_body_paragraphs(roots[DOC])
+        chosen = choose_body(base_view, rng)
+        raw = raw_body_paragraphs(roots[DOC])
         for index in chosen:
-            _set_spacing_line(_p_ppr(raw[index]), SPACING_1_15)
+            set_spacing_line(p_ppr(raw[index]), SPACING_1_15)
         return {"where": "paragraph", "paragraphs": chosen, "line": SPACING_1_15}
 
     def style():
-        target, _ = _normal_style(roots, base_view)
-        raw = _raw_body_paragraphs(roots[DOC])
+        target, _ = normal_style(roots, base_view)
+        raw = raw_body_paragraphs(roots[DOC])
         pinned = []
         for p in find_references(base_view)[1]:          # APA-12 reads entry spacing
             current = resolve_paragraph(p, base_view)["spacing"]
-            _set_spacing_line(_p_ppr(raw[p.index]), current["line"], current["lineRule"])
+            set_spacing_line(p_ppr(raw[p.index]), current["line"], current["lineRule"])
             pinned.append(p.index)
-        _set_spacing_line(_style_ppr(target), SPACING_1_15)
+        set_spacing_line(style_ppr(target), SPACING_1_15)
         return {"where": "style", "style": target.get(w("styleId")), "line": SPACING_1_15,
                 "pinned_paragraphs": pinned}
 
-    return _two_modes(where, paragraphs, style, "APA-01")
+    return two_modes(where, paragraphs, style, "APA-01")
 
 
 # --------------------------------------------------------------------------
@@ -321,29 +160,29 @@ def apply_spacing_1_15(roots, rng, where, base_view) -> dict:
 
 def apply_no_first_line_indent(roots, rng, where, base_view) -> dict:
     def paragraphs():
-        chosen = _choose_body(base_view, rng)
-        raw = _raw_body_paragraphs(roots[DOC])
+        chosen = choose_body(base_view, rng)
+        raw = raw_body_paragraphs(roots[DOC])
         for index in chosen:
-            _set_first_line(_p_ppr(raw[index]), "0")
+            set_first_line(p_ppr(raw[index]), "0")
         return {"where": "paragraph", "paragraphs": chosen}
 
     def style():
-        target, _ = _normal_style(roots, base_view)
-        raw = _raw_body_paragraphs(roots[DOC])
+        target, _ = normal_style(roots, base_view)
+        raw = raw_body_paragraphs(roots[DOC])
         _, _, keywords = find_abstract(base_view)
-        protect = sorted(_run_in_heading_paragraphs(base_view)
+        protect = sorted(run_in_heading_paragraphs(base_view)
                          | ({keywords.index} if keywords is not None else set()))
         pinned = []
         for index in protect:                # APA-09 / APA-11 read these indents
             para = resolve_paragraph(base_view.paragraphs[index], base_view)
             if para["sources"].get("indent.firstLine") != "direct":
-                _set_first_line(_p_ppr(raw[index]), para["indent"]["firstLine"])
+                set_first_line(p_ppr(raw[index]), para["indent"]["firstLine"])
                 pinned.append(index)
-        _set_first_line(_style_ppr(target), "0")
+        set_first_line(style_ppr(target), "0")
         return {"where": "style", "style": target.get(w("styleId")),
                 "pinned_paragraphs": pinned}
 
-    return _two_modes(where, paragraphs, style, "APA-04")
+    return two_modes(where, paragraphs, style, "APA-04")
 
 
 # --------------------------------------------------------------------------
@@ -353,23 +192,23 @@ def apply_no_first_line_indent(roots, rng, where, base_view) -> dict:
 def _font_recipe(family: str, half_points: str | None, name: str):
     def apply(roots, rng, where, base_view) -> dict:
         def paragraphs():
-            chosen = _choose_body(base_view, rng)
-            raw = _raw_body_paragraphs(roots[DOC])
+            chosen = choose_body(base_view, rng)
+            raw = raw_body_paragraphs(roots[DOC])
             runs = 0
             for index in chosen:
-                for r in _own_runs(raw[index]):
-                    _set_font(_r_rpr(r), family, half_points)
+                for r in own_runs(raw[index]):
+                    set_font(r_rpr(r), family, half_points)
                     runs += 1
             return {"where": "paragraph", "paragraphs": chosen, "runs": runs,
                     "font": family, "size_half_points": half_points}
 
         def style():
-            target, _ = _normal_style(roots, base_view)
-            _set_font(_style_rpr(target), family, half_points)
+            target, _ = normal_style(roots, base_view)
+            set_font(style_rpr(target), family, half_points)
             return {"where": "style", "style": target.get(w("styleId")),
                     "font": family, "size_half_points": half_points}
 
-        return _two_modes(where, paragraphs, style, name)
+        return two_modes(where, paragraphs, style, name)
     return apply
 
 
@@ -387,7 +226,7 @@ def _strip_page_fields(root) -> int:
     for p in list(root.iter(w("p"))):
         open_fields: list[dict] = []
         doomed: list[etree._Element] = []
-        for r in _own_runs(p):
+        for r in own_runs(p):
             fc = r.find(w("fldChar"))
             kind = None if fc is None else fc.get(w("fldCharType"))
             if kind == "begin":

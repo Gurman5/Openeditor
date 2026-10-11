@@ -16,7 +16,8 @@ Finding the parts:
              (w:pPr/w:sectPr; that paragraph is still part of the abstract)
   keywords = a paragraph starting "Keywords:" inside that zone
 
-No abstract -> both rows "na" (student papers often have none).
+No abstract -> both rows "na" (student papers often have none), unless
+require_abstract=True, which makes a missing abstract FAIL APA-08.
 Abstract but no keywords -> APA-09 "na".
 
 The one-line limit can be changed:
@@ -201,15 +202,22 @@ def _check_keywords(view, kw: ParagraphView, max_chars: int) -> dict:
 # --------------------------------------------------------------------------
 
 def check_abstract(doc: AcceptedView | str | Path, max_words: int = MAX_ABSTRACT_WORDS,
-                   max_keyword_chars: int | None = None) -> dict:
-    """Run APA-08 and APA-09. Returns {"APA-08": {...}, "APA-09": {...}}."""
+                   max_keyword_chars: int | None = None,
+                   require_abstract: bool = False) -> dict:
+    """Run APA-08 and APA-09. Returns {"APA-08": {...}, "APA-09": {...}}.
+
+    require_abstract=True (e.g. professional papers, or a doc whose abstract
+    was removed on purpose): a missing abstract FAILS APA-08 instead of "na".
+    APA-09 stays "na" either way when there is no abstract."""
     view = doc if isinstance(doc, AcceptedView) else accepted_view(doc)
     max_chars = keyword_char_limit(max_keyword_chars)
     label, body, kw = find_abstract(view)
 
     if label is None:
-        return {"APA-08": _row("APA-08", "abstract", None),
-                "APA-09": _row("APA-09", "keywords", None)}
+        apa08 = (_row("APA-08", "abstract",
+                      {"abstract_present": {"status": "fail", "reason": "no Abstract label"}})
+                 if require_abstract else _row("APA-08", "abstract", None))
+        return {"APA-08": apa08, "APA-09": _row("APA-09", "keywords", None)}
     return {
         "APA-08": _row("APA-08", "abstract", _check_abstract(view, label, body, max_words),
                        label.index),
@@ -223,8 +231,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="APA-08/APA-09 abstract + keywords check")
     ap.add_argument("--docx", required=True, help="path to a .docx file")
     ap.add_argument("--max-keyword-chars", type=int, help="one-line limit (default 100)")
+    ap.add_argument("--require-abstract", action="store_true",
+                    help="a missing abstract fails APA-08 instead of na")
     args = ap.parse_args(argv)
-    result = check_abstract(args.docx, max_keyword_chars=args.max_keyword_chars)
+    result = check_abstract(args.docx, max_keyword_chars=args.max_keyword_chars,
+                            require_abstract=args.require_abstract)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

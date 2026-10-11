@@ -148,6 +148,22 @@ def test_no_abstract_is_na(good):
     assert (_status(result, "APA-08"), _status(result, "APA-09")) == ("na", "na")
 
 
+def test_require_abstract_makes_missing_abstract_fail(good):
+    def change(doc, label, body, kw):
+        for p in (label, body, kw):
+            _remove(p)
+    _edit(good, change)
+    assert _status(check_abstract(good), "APA-08") == "na"            # default unchanged
+    result = check_abstract(good, require_abstract=True)
+    assert _status(result, "APA-08") == "fail"
+    assert _status(result, "APA-08", "abstract_present") == "fail"
+    assert _status(result, "APA-09") == "na"
+
+
+def test_require_abstract_changes_nothing_when_abstract_exists(good):
+    assert check_abstract(good, require_abstract=True) == check_abstract(good)
+
+
 def test_no_keywords_is_na_for_apa09_only(good):
     _edit(good, lambda d, label, body, kw: _remove(kw))
     result = check_abstract(good)
