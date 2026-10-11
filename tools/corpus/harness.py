@@ -1,7 +1,10 @@
 """Track K conformance harness.
 
 This file handles the command-line interface and combines the results
-from the corpus checks.
+from the Track K corpus checks.
+
+It is the Person A orchestration layer. Individual conformance checks
+remain in tools/corpus/checks/.
 """
 
 from __future__ import annotations
@@ -9,14 +12,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import zipfile
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from lxml import etree
-
-from tools.corpus.docx_view import accepted_view
+from tools.corpus.docx_view import (
+    accepted_view,
+    check_validity as check_docx_validity,
+)
 
 from tools.corpus.checks.layout import (
     CHECKS as LAYOUT_CHECKS,
@@ -26,11 +28,9 @@ from tools.corpus.checks.fonts import check_fonts
 from tools.corpus.checks.headings import check_headings
 from tools.corpus.checks.abstract import check_abstract
 from tools.corpus.checks.refs import check_references
+from tools.corpus.checks.residue import check_residue
+from tools.corpus.checks.appendices import check_appendices
 from tools.corpus.checks.preservation import check_preservation
-
-
-W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-NS = {"w": W_NS}
 
 
 # Checks that can be selected from the command line.
@@ -45,8 +45,24 @@ AVAILABLE_CHECKS = (
     "headings",
     "abstract",
     "refs",
+    "residue",
+    "appendices",
     "preservation",
 )
+
+
+# Checks that need the AcceptedView / style resolver.
+VIEW_CHECKS = {
+    "margins",
+    "spacing",
+    "align",
+    "indent",
+    "pagenum",
+    "fonts",
+    "headings",
+    "abstract",
+    "refs",
+}
 
 
 def result(
@@ -55,9 +71,9 @@ def result(
     evidence: str,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create a result for checks owned by the harness."""
+    """Create a standard harness result."""
 
-    output = {
+    output: dict[str, Any] = {
         "check": check,
         "status": status,
         "evidence": evidence,
@@ -69,175 +85,273 @@ def result(
     return output
 
 
-def parse_xml(data: bytes, part_name: str):
-    """Parse XML and give a useful error if it is invalid."""
+def check_validity(
+    docx_path: Path | str,
+) -> dict[str, Any]:
+    """
+    Run Zac's K-H1 validity implementation and adapt its output to the
+    common harness result format.
 
-    try:
-        return etree.fromstring(data)
+    Duplicate revision w:id values are reported but do not by themselves
+    make the DOCX invalid.
+    """
 
-    except etree.XMLSyntaxError as exc:
+    raw = check_docx_validity(
+        docx_path
+    )
+
+    valid = bool(
+        raw.get("valid")
+    )
+
+    reasons = (
+        raw.get("reasons")
+        or []
+    )
+
+    duplicate_count = int(
+        raw.get(
+            "duplicate_id_count",
+            0,
+        )
+        or 0
+    )
+
+    duplicate_ids = (
+        raw.get(
+            "duplicate_ids"
+        )
+        or {}
+    )
+
+    if valid:
+        evidence = (
+            "DOCX container and XML "
+            "are valid."
+        )
+    else:
+        evidence = (
+            "; ".join(
+                str(reason)
+                for reason in reasons
+            )
+            if reasons
+            else "DOCX validity check failed."
+        )
+
+    return result(
+        "validity",
+        "pass" if valid else "fail",
+        evidence,
+        {
+            "path": raw.get(
+                "path",
+                str(docx_path),
+            ),
+
+            # Names used by the Track K scoring/reporting side.
+            "duplicate_w_id_count": (
+                duplicate_count
+            ),
+            "duplicate_w_ids": (
+                duplicate_ids
+            ),
+
+            # Keep the original K-H1 names as well.
+            "duplicate_id_count": (
+                duplicate_count
+            ),
+            "duplicate_ids": (
+                duplicate_ids
+            ),
+
+            "reasons": reasons,
+        },
+    )
+
+
+def validate_selected_checks(
+    selected_checks: list[str],
+) -> None:
+    """Raise if a programmatic caller supplied an unknown check."""
+
+    unknown = [
+        name
+        for name in selected_checks
+        if name not in AVAILABLE_CHECKS
+    ]
+
+    if unknown:
         raise ValueError(
-            f"Invalid XML in {part_name}: {exc}"
-        ) from exc
-
-
-def check_validity(docx_path: Path) -> dict[str, Any]:
-    """Basic DOCX and XML validity check."""
-
-    if not docx_path.exists():
-        return result(
-            "validity",
-            "fail",
-            f"File does not exist: {docx_path}",
-        )
-
-    if not zipfile.is_zipfile(docx_path):
-        return result(
-            "validity",
-            "fail",
-            "File is not a valid DOCX/ZIP file.",
-        )
-
-    try:
-        with zipfile.ZipFile(docx_path, "r") as archive:
-            members = archive.namelist()
-
-            required = {
-                "[Content_Types].xml",
-                "word/document.xml",
-            }
-
-            missing = sorted(
-                required - set(members)
+            "Unknown check(s): "
+            + ", ".join(
+                unknown
             )
-
-            if missing:
-                return result(
-                    "validity",
-                    "fail",
-                    f"Missing required files: {missing}",
-                )
-
-            bad_member = archive.testzip()
-
-            if bad_member is not None:
-                return result(
-                    "validity",
-                    "fail",
-                    f"Corrupt ZIP member: {bad_member}",
-                )
-
-            xml_parts = [
-                name
-                for name in members
-                if name.endswith(".xml")
-                or name.endswith(".rels")
-            ]
-
-            for part_name in xml_parts:
-                parse_xml(
-                    archive.read(part_name),
-                    part_name,
-                )
-
-            root = parse_xml(
-                archive.read("word/document.xml"),
-                "word/document.xml",
-            )
-
-            expected_root = f"{{{W_NS}}}document"
-
-            if root.tag != expected_root:
-                return result(
-                    "validity",
-                    "fail",
-                    "word/document.xml does not use a w:document root.",
-                )
-
-            ids = root.xpath(
-                "//@w:id",
-                namespaces=NS,
-            )
-
-            counts = Counter(ids)
-
-            duplicate_ids = {
-                value: count
-                for value, count in counts.items()
-                if count > 1
-            }
-
-            duplicate_count = sum(
-                count - 1
-                for count in duplicate_ids.values()
-            )
-
-            return result(
-                "validity",
-                "pass",
-                "DOCX container and XML are valid.",
-                {
-                    "xml_parts_checked": len(xml_parts),
-                    "duplicate_w_id_count": duplicate_count,
-                    "duplicate_w_ids": duplicate_ids,
-                },
-            )
-
-    except Exception as exc:
-        return result(
-            "validity",
-            "fail",
-            str(exc),
         )
 
 
 def run_harness(
-    docx_path: Path,
+    docx_path: Path | str,
     selected_checks: list[str],
     *,
-    input_docx: Path | None = None,
+    input_docx: Path | str | None = None,
     check_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run the selected corpus checks and combine their results."""
+    """
+    Run selected Track K checks and combine their results.
 
-    check_results: dict[str, Any] = {}
+    Parameters
+    ----------
+    docx_path:
+        Document being graded. For a pipeline run this is the engine
+        output DOCX.
+
+    selected_checks:
+        Names from AVAILABLE_CHECKS.
+
+    input_docx:
+        Original input document. Required for preservation and used by
+        residue/appendix preservation checks.
+
+    check_options:
+        Per-matrix-row options supplied by corpus/injector metadata.
+
+        Example:
+
+            {
+                "APA-08": {
+                    "require_abstract": True
+                }
+            }
+
+    Returns
+    -------
+    A JSON-safe dictionary containing all check results.
+    """
+
+    docx_path = Path(
+        docx_path
+    )
+
+    if input_docx is not None:
+        input_docx = Path(
+            input_docx
+        )
+
+    validate_selected_checks(
+        selected_checks
+    )
 
     if check_options is None:
         check_options = {}
 
-    # Validity is owned by harness.py and can run before AcceptedView.
-    if "validity" in selected_checks:
-        validity = check_validity(docx_path)
-        check_results["validity"] = validity
+    if not isinstance(
+        check_options,
+        dict,
+    ):
+        raise ValueError(
+            "check_options must be a dictionary"
+        )
 
-        # Stop here if the file itself is invalid.
-        if validity["status"] == "fail":
+    check_results: dict[str, Any] = {}
+
+    # --------------------------------------------------------------
+    # K-H1 validity
+    # --------------------------------------------------------------
+
+    if "validity" in selected_checks:
+        validity = check_validity(
+            docx_path
+        )
+
+        check_results[
+            "validity"
+        ] = validity
+
+        # No other output checks are reliable when the DOCX itself
+        # cannot be parsed.
+        if (
+            validity["status"]
+            == "fail"
+        ):
             return {
                 "schema_version": 1,
-                "document": str(docx_path),
+                "document": str(
+                    docx_path
+                ),
+                "input_document": (
+                    str(input_docx)
+                    if input_docx
+                    is not None
+                    else None
+                ),
                 "accepted_view": {
                     "available": False,
-                    "reason": "validity check failed",
+                    "reason": (
+                        "validity check failed"
+                    ),
                 },
-                "checks": check_results,
+                "check_options": (
+                    check_options
+                ),
+                "checks": (
+                    check_results
+                ),
             }
 
-    # All resolver-based checks use the same accepted view.
-    try:
-        view = accepted_view(docx_path)
+    # --------------------------------------------------------------
+    # Build the AcceptedView once for all resolver-based checks.
+    # --------------------------------------------------------------
 
-    except Exception as exc:
-        return {
-            "schema_version": 1,
-            "document": str(docx_path),
-            "accepted_view": {
-                "available": False,
-                "error": str(exc),
-            },
-            "checks": check_results,
-        }
+    needs_view = any(
+        name in VIEW_CHECKS
+        for name in selected_checks
+    )
 
-    # APA-00, APA-01, APA-03, APA-04 and APA-05.
+    view = None
+
+    if needs_view:
+        try:
+            view = accepted_view(
+                docx_path
+            )
+
+        except Exception as exc:
+            return {
+                "schema_version": 1,
+                "document": str(
+                    docx_path
+                ),
+                "input_document": (
+                    str(input_docx)
+                    if input_docx
+                    is not None
+                    else None
+                ),
+                "accepted_view": {
+                    "available": False,
+                    "error": (
+                        f"{type(exc).__name__}: "
+                        f"{exc}"
+                    ),
+                },
+                "check_options": (
+                    check_options
+                ),
+                "checks": (
+                    check_results
+                ),
+            }
+
+    # --------------------------------------------------------------
+    # K-H2
+    # APA-00 margins
+    # APA-01 spacing
+    # APA-03 alignment
+    # APA-04 indentation
+    # APA-05 page numbers
+    # --------------------------------------------------------------
+
     layout_names = [
         name
         for name in selected_checks
@@ -245,6 +359,12 @@ def run_harness(
     ]
 
     if layout_names:
+        if view is None:
+            raise RuntimeError(
+                "AcceptedView was not created "
+                "for layout checks."
+            )
+
         check_results.update(
             check_layout(
                 view,
@@ -252,26 +372,84 @@ def run_harness(
             )
         )
 
-    # APA-02.
+    # --------------------------------------------------------------
+    # K-H3
+    # APA-02 fonts
+    # --------------------------------------------------------------
+
     if "fonts" in selected_checks:
-        font_result = check_fonts(view)
+        if view is None:
+            raise RuntimeError(
+                "AcceptedView was not created "
+                "for font checks."
+            )
+
+        font_result = check_fonts(
+            view
+        )
 
         check_results[
             font_result["matrix_id"]
         ] = font_result
 
-    # APA-10 and APA-11.
+    # --------------------------------------------------------------
+    # K-H4
+    # APA-10 / APA-11 headings
+    # --------------------------------------------------------------
+
     if "headings" in selected_checks:
+        if view is None:
+            raise RuntimeError(
+                "AcceptedView was not created "
+                "for heading checks."
+            )
+
         check_results.update(
-            check_headings(view)
+            check_headings(
+                view
+            )
         )
 
-    # APA-08 and APA-09.
+    # --------------------------------------------------------------
+    # K-H6
+    # APA-08 abstract / APA-09 keywords
+    #
+    # APA-08c injector rows can set:
+    #
+    # {
+    #     "APA-08": {
+    #         "require_abstract": true
+    #     }
+    # }
+    #
+    # Professional-mode documents also use this option through score.py.
+    # --------------------------------------------------------------
+
     if "abstract" in selected_checks:
-        abstract_options = check_options.get(
-            "APA-08",
-            {},
+        if view is None:
+            raise RuntimeError(
+                "AcceptedView was not created "
+                "for abstract checks."
+            )
+
+        abstract_options = (
+            check_options.get(
+                "APA-08",
+                {},
+            )
         )
+
+        if abstract_options is None:
+            abstract_options = {}
+
+        if not isinstance(
+            abstract_options,
+            dict,
+        ):
+            raise ValueError(
+                "check_options['APA-08'] "
+                "must be a dictionary"
+            )
 
         require_abstract = bool(
             abstract_options.get(
@@ -283,26 +461,79 @@ def run_harness(
         check_results.update(
             check_abstract(
                 view,
-                require_abstract=require_abstract,
+                require_abstract=(
+                    require_abstract
+                ),
             )
         )
 
-    # APA-12 and APA-18.
+    # --------------------------------------------------------------
+    # K-H5
+    # APA-12 references / APA-18 DOI format
+    # --------------------------------------------------------------
+
     if "refs" in selected_checks:
+        if view is None:
+            raise RuntimeError(
+                "AcceptedView was not created "
+                "for reference checks."
+            )
+
         check_results.update(
-            check_references(view)
+            check_references(
+                view
+            )
         )
 
-    # K-H9 preservation hard flag.
+    # --------------------------------------------------------------
+    # K-H7
+    # JUTLP residue.
+    #
+    # The check returns NA when the original input already contains
+    # residue, because in that situation the engine did not necessarily
+    # introduce it.
+    # --------------------------------------------------------------
+
+    if "residue" in selected_checks:
+        check_results[
+            "residue"
+        ] = check_residue(
+            docx_path,
+            input_docx,
+        )
+
+    # --------------------------------------------------------------
+    # K-H8
+    # Appendix preservation.
+    #
+    # The check returns NA when the original input has no Appendix.
+    # --------------------------------------------------------------
+
+    if "appendices" in selected_checks:
+        check_results[
+            "appendices"
+        ] = check_appendices(
+            docx_path,
+            input_docx,
+        )
+
+    # --------------------------------------------------------------
+    # K-H9
+    # Hard text-preservation flag.
+    # --------------------------------------------------------------
+
     if "preservation" in selected_checks:
         if input_docx is None:
             raise ValueError(
-                "preservation check requires input_docx"
+                "preservation check "
+                "requires input_docx"
             )
 
-        preservation_result = check_preservation(
-            docx_path,
-            input_docx,
+        preservation_result = (
+            check_preservation(
+                docx_path,
+                input_docx,
+            )
         )
 
         check_results[
@@ -311,12 +542,32 @@ def run_harness(
 
     return {
         "schema_version": 1,
-        "document": str(docx_path),
+        "document": str(
+            docx_path
+        ),
+        "input_document": (
+            str(input_docx)
+            if input_docx is not None
+            else None
+        ),
         "accepted_view": {
-            "available": True,
-            "result_type": type(view).__name__,
+            "available": (
+                view is not None
+                if needs_view
+                else True
+            ),
+            "result_type": (
+                type(view).__name__
+                if view is not None
+                else None
+            ),
         },
-        "checks": check_results,
+        "check_options": (
+            check_options
+        ),
+        "checks": (
+            check_results
+        ),
     }
 
 
@@ -333,10 +584,14 @@ def write_report(
     )
 
     if output == "-":
-        print(rendered)
+        print(
+            rendered
+        )
         return
 
-    output_path = Path(output)
+    output_path = Path(
+        output
+    )
 
     output_path.parent.mkdir(
         parents=True,
@@ -349,11 +604,14 @@ def write_report(
     )
 
     print(
-        f"Wrote harness report: {output_path}"
+        "Wrote harness report: "
+        f"{output_path}"
     )
 
 
-def parse_checks(value: str) -> list[str]:
+def parse_checks(
+    value: str,
+) -> list[str]:
     """Parse the comma-separated --checks argument."""
 
     checks = [
@@ -371,19 +629,34 @@ def parse_checks(value: str) -> list[str]:
     if unknown:
         raise argparse.ArgumentTypeError(
             "Unknown check(s): "
-            + ", ".join(unknown)
+            + ", ".join(
+                unknown
+            )
         )
 
     return checks
 
 
-def report_has_failure(report: dict[str, Any]) -> bool:
+def report_has_failure(
+    report: dict[str, Any],
+) -> bool:
     """Return True if any harness result failed."""
 
-    for item in report["checks"].values():
+    for item in (
+        report.get(
+            "checks",
+            {}
+        ).values()
+    ):
         if (
-            isinstance(item, dict)
-            and item.get("status") == "fail"
+            isinstance(
+                item,
+                dict,
+            )
+            and item.get(
+                "status"
+            )
+            == "fail"
         ):
             return True
 
@@ -393,8 +666,8 @@ def report_has_failure(report: dict[str, Any]) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run Track K conformance checks "
-            "on a DOCX file."
+            "Run Track K conformance "
+            "checks on a DOCX file."
         )
     )
 
@@ -402,30 +675,37 @@ def main() -> int:
         "--docx",
         required=True,
         help=(
-            "DOCX file to check. For preservation this is "
-            "the engine output DOCX."
+            "DOCX file to check. "
+            "For comparison checks this "
+            "is the engine output DOCX."
         ),
     )
 
     parser.add_argument(
         "--input",
         help=(
-            "Original input DOCX. Required when "
-            "running the preservation check."
+            "Original input DOCX. "
+            "Required for preservation; "
+            "also used by residue and "
+            "appendix checks."
         ),
     )
 
-    group = parser.add_mutually_exclusive_group(
-        required=True
+    group = (
+        parser.add_mutually_exclusive_group(
+            required=True
+        )
     )
 
     group.add_argument(
         "--checks",
         type=parse_checks,
         help=(
-            "Comma-separated checks, for example "
-            "margins,spacing,align,indent,pagenum,"
-            "fonts,headings,abstract,refs"
+            "Comma-separated checks. "
+            "Choices: "
+            + ",".join(
+                AVAILABLE_CHECKS
+            )
         ),
     )
 
@@ -433,8 +713,9 @@ def main() -> int:
         "--all",
         action="store_true",
         help=(
-            "Run all available document checks. "
-            "Preservation is also run when --input is supplied."
+            "Run all available checks. "
+            "Preservation is included "
+            "when --input is supplied."
         ),
     )
 
@@ -442,8 +723,8 @@ def main() -> int:
         "--require-abstract",
         action="store_true",
         help=(
-            "A missing abstract fails APA-08 "
-            "instead of returning na."
+            "A missing abstract fails "
+            "APA-08 instead of returning na."
         ),
     )
 
@@ -458,17 +739,19 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    docx_path = Path(args.docx)
+    docx_path = Path(
+        args.docx
+    )
 
     input_docx = (
-        Path(args.input)
+        Path(
+            args.input
+        )
         if args.input
         else None
     )
 
     if args.all:
-        # --all can still be used on a single document.
-        # Preservation needs both an input and output file.
         selected_checks = [
             name
             for name in AVAILABLE_CHECKS
@@ -481,21 +764,29 @@ def main() -> int:
             )
 
     else:
-        selected_checks = args.checks
+        selected_checks = (
+            args.checks
+        )
 
     if (
-        "preservation" in selected_checks
+        "preservation"
+        in selected_checks
         and input_docx is None
     ):
         parser.error(
-            "--input is required when running "
-            "the preservation check"
+            "--input is required when "
+            "running the preservation check"
         )
 
-    check_options: dict[str, Any] = {}
+    check_options: dict[
+        str,
+        Any,
+    ] = {}
 
     if args.require_abstract:
-        check_options["APA-08"] = {
+        check_options[
+            "APA-08"
+        ] = {
             "require_abstract": True,
         }
 
@@ -511,11 +802,15 @@ def main() -> int:
         args.out,
     )
 
-    if report_has_failure(report):
+    if report_has_failure(
+        report
+    ):
         return 1
 
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(
+        main()
+    )
