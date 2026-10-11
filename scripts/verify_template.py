@@ -2,17 +2,17 @@
 
 Checks: required styles present with correct Calibri 11 formatting, single
 1in pgMar, Normal geometry, PAGE header, non-empty skeleton, and that every
-expected paragraph style is actually used by >=1 paragraph (a defined-but-
-unused style is the drift trap the JUTLP layer fell into). Char companions
-are presence-checked only.
+expected paragraph style is actually used by >=1 paragraph. The three
+title-page roles are style donors for the C-24 title-page pass.
 Note:
 this script is not a full C-47 test, but a sanity check for the generated 
 template and its future use in the C-27 pipeline.
 """
 
-#TODO: Delete script and repurpose into test after completion of Track C 
+# TODO: Delete script and repurpose into test after completion of Track C
 import os
 import sys
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,8 +30,8 @@ for name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3",
              "APA 7 Reference List Entry", "Quote", "Table Number",
              "Table Title", "Table Text", "Table Emphasis", "Table Note",
              "Table Grid", "Figure Number", "Figure Title",
-             "Figure/Table Number", "Figure/Table Title",
-             "Figure/Table Notes"]:
+             "Figure/Table Number", "Figure/Table Title", "Figure/Table Notes",
+             "Article Title", "Authors", "Author Affiliations"]:
     present = name in d.styles
     print(f"  {name:28} present={present}")
     ok = ok and present
@@ -53,11 +53,11 @@ for name in ["Table Number Char", "Table Title Char", "Figure Number Char",
     print(f"  {name:28} present={present}")
     ok = ok and present
 
-print("--- JUTLP front-page styles must be absent ---")
+print("--- APA title-page styles ---")
 for name in ["Article Title", "Authors", "Author Affiliations"]:
-    absent = name not in d.styles
-    print(f"  {name:28} absent={absent}")
-    ok = ok and absent
+    present = name in d.styles
+    print(f"  {name:28} present={present}")
+    ok = ok and present
 
 sect = d.sections[0]
 pgmars = sect._sectPr.findall(f".//{{{W}}}pgMar")
@@ -76,6 +76,15 @@ print("  has PAGE field:", "PAGE" in xml)
 print("  right aligned:", str(hdr.paragraph_format.alignment))
 ok = ok and "PAGE" in xml
 
+first_hdr_xml = sect.first_page_header._element.xml
+print("  first-page banner:", "graphic" in first_hdr_xml or "blip" in first_hdr_xml)
+ok = ok and ("graphic" in first_hdr_xml or "blip" in first_hdr_xml)
+
+with zipfile.ZipFile("app/domain/APA7 Base Template.docx", "r") as archive:
+    no_effects_part = "word/stylesWithEffects.xml" not in archive.namelist()
+    print("  stylesWithEffects removed:", no_effects_part)
+    ok = ok and no_effects_part
+
 print("--- skeleton ---")
 paras = [p for p in d.paragraphs if p.text.strip()]
 print(f"  non-empty paragraphs: {len(paras)} (must be > 0)")
@@ -84,7 +93,8 @@ used = {p.style.name for p in d.paragraphs}
 for name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3",
              "Heading 4", "Heading 5", "Quote", "Table Number",
              "Table Title", "Table Note", "Figure Number", "Figure Title",
-             "Figure/Table Notes", "APA 7 Reference List Entry"]:
+             "Figure/Table Notes", "APA 7 Reference List Entry",
+             "Article Title", "Authors", "Author Affiliations"]:
     is_used = name in used
     print(f"  style used: {name:28} {is_used}")
     ok = ok and is_used

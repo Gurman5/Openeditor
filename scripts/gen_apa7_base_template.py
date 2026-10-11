@@ -15,9 +15,10 @@ its a utility for generating the template document seen in "\\app\\domain\\APA7 
 """
 
 import os
+import zipfile
 
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
@@ -25,6 +26,9 @@ from docx.oxml import OxmlElement
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "domain")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "APA7 Base Template.docx")
+BANNER_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "app", "static", "oapa-logo.png"
+)
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -75,6 +79,37 @@ def _set_font(style, bold=None, italic=None):
         rFonts.set(qn(f"w:{attr}"), "Calibri")
 
 
+def _remove_rpr_theme_and_colour(style):
+    """Keep generated styles black and explicit Calibri instead of theme-derived."""
+    rPr = style.element.get_or_add_rPr()
+    rFonts = rPr.find(f"./{{{W_NS}}}rFonts")
+    if rFonts is not None:
+        for attr in ("asciiTheme", "eastAsiaTheme", "hAnsiTheme", "cstheme"):
+            rFonts.attrib.pop(qn(f"w:{attr}"), None)
+
+    for tag in ("color", "kern", "spacing"):
+        child = rPr.find(f"./{{{W_NS}}}{tag}")
+        if child is not None:
+            rPr.remove(child)
+
+    for attr in ("ascii", "hAnsi", "cs"):
+        rFonts = rPr.find(f"./{{{W_NS}}}rFonts")
+        if rFonts is None:
+            rFonts = OxmlElement("w:rFonts")
+            rPr.insert(0, rFonts)
+        rFonts.set(qn(f"w:{attr}"), "Calibri")
+
+
+def _set_size_cs(style, value="22"):
+    rPr = style.element.get_or_add_rPr()
+    for tag in ("sz", "szCs"):
+        child = rPr.find(f"./{{{W_NS}}}{tag}")
+        if child is None:
+            child = OxmlElement(f"w:{tag}")
+            rPr.append(child)
+        child.set(qn("w:val"), value)
+
+
 def apply_normal_style(style):
     _set_font(style)
     style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -89,6 +124,8 @@ def apply_heading_style(style, align, bold, italic, indent_twips=0):
     pPr = style.element.get_or_add_pPr()
     _set_spacing(pPr, line="480", after="0")
     _set_ind(pPr, left=str(indent_twips))
+    _remove_rpr_theme_and_colour(style)
+    _set_size_cs(style)
 
 
 def apply_reference_format(style):
@@ -102,6 +139,51 @@ def apply_reference_format(style):
 def apply_title_style(style):
     _set_font(style, bold=True)
     style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pPr = style.element.get_or_add_pPr()
+    for tag in ("pBdr", "contextualSpacing"):
+        child = pPr.find(f"./{{{W_NS}}}{tag}")
+        if child is not None:
+            pPr.remove(child)
+    _set_spacing(pPr, line="480", after="0")
+    _set_ind(pPr, left="0", first_line="0")
+    _remove_rpr_theme_and_colour(style)
+    _set_size_cs(style)
+
+
+def apply_title_page_styles(doc):
+    """APA-07 style vocabulary used by the title and author passes."""
+    definitions = {
+        "Article Title": True,
+        "Authors": False,
+        "Author Affiliations": False,
+    }
+    for name, bold in definitions.items():
+        style = _ensure_para_style(doc, name)
+        _set_font(style, bold=bold, italic=False)
+        style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        pPr = style.element.get_or_add_pPr()
+        _set_spacing(pPr, line="480", after="0")
+        _set_ind(pPr, left="0", first_line="0")
+        _remove_rpr_theme_and_colour(style)
+        _set_size_cs(style)
+
+
+def clean_linked_heading_character_styles(doc):
+    """Remove Word-default theme colours from linked title/heading styles."""
+    for name in (
+        "Title Char",
+        "Heading 1 Char",
+        "Heading 2 Char",
+        "Heading 3 Char",
+        "Heading 4 Char",
+        "Heading 5 Char",
+    ):
+        if name not in doc.styles:
+            continue
+        style = doc.styles[name]
+        _set_font(style)
+        _remove_rpr_theme_and_colour(style)
+        _set_size_cs(style)
 
 
 def ensure_reference_styles(doc):
@@ -136,9 +218,9 @@ def _ensure_char_style(doc, name, bold=None, italic=None):
 def apply_caption_styles(doc):
     """APA-15/16 caption family + Char companions (Calibri 11, D2).
 
-    JUTLP front-page styles (Article Title / Authors / Author Affiliations)
-    are deliberately NOT created: APA has no equivalent and C-24 rebuilds
-    the title page from Title + centred Normal lines.
+    APA title-page role styles are created separately by
+    ``apply_title_page_styles`` so this caption pass stays focused on
+    APA-15/16 table and figure roles.
     """
     paras = {
         # name: (bold, italic, keep_with_next)
@@ -246,6 +328,20 @@ def apply_page_numbers(doc):
         header_para._p.append(fld)
 
 
+def add_first_page_banner(doc):
+    """Add the removable first-page banner while keeping PAGE in both headers."""
+    if not os.path.exists(BANNER_PATH):
+        raise FileNotFoundError(BANNER_PATH)
+
+    header = doc.sections[0].first_page_header
+    page_para = header.paragraphs[0]
+    banner_para = header.add_paragraph()
+    banner_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    banner_para.add_run().add_picture(BANNER_PATH, width=Inches(2.0))
+    header._element.remove(banner_para._p)
+    header._element.insert(header._element.index(page_para._p), banner_para._p)
+
+
 def _centered(doc, text, style_name="Normal"):
     """Centred skeleton line (direct alignment; keeps the style itself clean)."""
     p = doc.add_paragraph(style=style_name)
@@ -263,11 +359,11 @@ def build_skeleton(doc):
         doc.add_paragraph("", style="Normal")
     doc.add_paragraph(
         "Title of Paper in Bold Title Case Across Two Lines if Needed",
-        style="Title",
+        style="Article Title",
     )
     doc.add_paragraph("", style="Normal")  # one blank double-spaced line
-    _centered(doc, "Firstname M. Lastname")
-    _centered(doc, "Department Name, University Name")
+    _centered(doc, "Firstname M. Lastname", style_name="Authors")
+    _centered(doc, "Department Name, University Name", style_name="Author Affiliations")
     _centered(doc, "PSY 101: Introduction to Psychology")
     _centered(doc, "Dr. Instructor Name")
     _centered(doc, "October 10, 2026")
@@ -400,6 +496,8 @@ def main():
     apply_heading_style(doc.styles["Heading 5"], WD_ALIGN_PARAGRAPH.LEFT, True, True, 720)
 
     apply_title_style(doc.styles["Title"])
+    apply_title_page_styles(doc)
+    clean_linked_heading_character_styles(doc)
 
     ensure_reference_styles(doc)
     apply_caption_styles(doc)
@@ -407,11 +505,43 @@ def main():
 
     apply_page_margins(doc)
     apply_page_numbers(doc)
+    add_first_page_banner(doc)
 
     build_skeleton(doc)
 
     doc.save(OUTPUT_PATH)
+    _remove_styles_with_effects(OUTPUT_PATH)
     print(f"saved: {OUTPUT_PATH}")
+
+
+def _remove_styles_with_effects(path):
+    """Remove the divergent legacy stylesWithEffects compatibility part."""
+    temp_path = f"{path}.styles.tmp"
+    with zipfile.ZipFile(path, "r") as source, zipfile.ZipFile(
+        temp_path, "w", zipfile.ZIP_DEFLATED
+    ) as target:
+        for item in source.infolist():
+            if item.filename == "word/stylesWithEffects.xml":
+                continue
+            data = source.read(item.filename)
+            if item.filename == "word/_rels/document.xml.rels":
+                from lxml import etree
+
+                root = etree.fromstring(data)
+                for rel in root:
+                    if rel.get("Type", "").endswith("/stylesWithEffects"):
+                        root.remove(rel)
+                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+            elif item.filename == "[Content_Types].xml":
+                from lxml import etree
+
+                root = etree.fromstring(data)
+                for override in root:
+                    if override.get("PartName") == "/word/stylesWithEffects.xml":
+                        root.remove(override)
+                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+            target.writestr(item, data)
+    os.replace(temp_path, path)
 
 
 if __name__ == "__main__":
