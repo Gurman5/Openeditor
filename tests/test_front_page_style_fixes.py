@@ -17,15 +17,12 @@ from app.services.output_generation_samfix import (
     AFFILIATIONS_REQUIRED_STYLE_ID,
     AUTHORS_REQUIRED_STYLE_ID,
     CITATION_FOOTER_STYLE_ID,
-    FRONT_PAGE_BANNER_COMMENT,
-    FRONT_PAGE_TEXT_BOX_COMMENT,
     KEYWORDS_REQUIRED_HEADING_STYLE_ID,
     KEYWORDS_REQUIRED_TEXT_STYLE_ID,
     _apply_abstract_plan,
     _apply_author_plan,
     _apply_citation_plan,
     _apply_document_body_plan,
-    _apply_front_page_asset_plan,
     _apply_heading_1_text_normalization,
     _apply_heading_2_title_case,
     _apply_heading_keep_next,
@@ -49,7 +46,6 @@ from app.services.output_generation_samfix import (
     authorFound,
     build_author_check_plan,
     build_edited_document,
-    build_front_page_asset_check_plan,
     citationFormatCheck,
     citationFound,
     documentBodyFormatCheck,
@@ -582,7 +578,7 @@ def test_existing_authors_missing_affiliations_get_default_affiliation_paragraph
 
     paragraphs = load_paragraphs(str(output_path))
     assert paragraphs[2].text == "a Affiliation 1; b Affiliation 2"
-    assert paragraphs[2].style == "Normal"
+    assert paragraphs[2].style == "Author Affiliations"
     assert any("Replace these placeholder affiliations" in text for text in _comment_texts(output_path))
 
     with zipfile.ZipFile(output_path, "r") as z:
@@ -714,72 +710,6 @@ def test_author_queries_are_renumbered_by_document_anchor_order(tmp_path):
         "Author Query 1. Earlier comment.",
         "Author Query 2. Later comment.",
     ]
-
-
-def test_front_page_asset_plan_comments_when_banner_and_text_box_are_missing(tmp_path):
-    input_path = tmp_path / "input.docx"
-
-    doc = Document()
-    doc.add_paragraph("An Article Title")
-    doc.add_paragraph("Abstract")
-    doc.add_paragraph("Abstract body.")
-    doc.add_paragraph("Introduction").style = "Heading 1"
-    doc.add_paragraph("Body text.")
-    doc.save(input_path)
-
-    plan = build_front_page_asset_check_plan(str(input_path))
-
-    assert plan["action"] == "add_front_page_asset_comments"
-    assert plan["comments"] == [
-        {"anchor_pos": 0, "message": FRONT_PAGE_BANNER_COMMENT},
-        {"anchor_pos": 0, "message": FRONT_PAGE_TEXT_BOX_COMMENT},
-    ]
-
-
-def test_front_page_asset_plan_inserts_banner_and_textbox(tmp_path):
-    input_path = tmp_path / "input.docx"
-    output_path = tmp_path / "output.docx"
-
-    doc = Document()
-    doc.add_paragraph("An Article Title")
-    doc.add_paragraph("Abstract")
-    doc.add_paragraph("Abstract body.")
-    doc.add_paragraph("Introduction").style = "Heading 1"
-    doc.add_paragraph("Body text.")
-    doc.save(input_path)
-
-    # Ensure asset directory / dummy banner exists for the test if needed
-    # (or let's mock the helper check if your codebase uses a specific asset path)
-    plan = build_front_page_asset_check_plan(str(input_path))
-    applied = _apply_front_page_asset_plan(str(input_path), str(output_path), plan)
-
-    assert applied is True
-    assert output_path.exists()
-    with zipfile.ZipFile(output_path, "r") as z:
-        # APA-7 template retains/handles document contents cleanly
-        assert "word/document.xml" in z.namelist()
-
-
-def test_front_page_asset_plan_inserts_banner_in_first_section_header(tmp_path):
-    input_path = tmp_path / "input.docx"
-    output_path = tmp_path / "output.docx"
-
-    doc = Document()
-    doc.add_paragraph("An Article Title")
-    doc.add_paragraph("Abstract")
-    doc.add_paragraph("Abstract body.")
-    doc.add_section(WD_SECTION.NEW_PAGE)
-    doc.add_paragraph("Introduction").style = "Heading 1"
-    doc.add_paragraph("Body text.")
-    doc.save(input_path)
-
-    plan = build_front_page_asset_check_plan(str(input_path))
-    applied = _apply_front_page_asset_plan(str(input_path), str(output_path), plan)
-
-    assert applied is True
-    assert output_path.exists()
-    with zipfile.ZipFile(output_path, "r") as z:
-        assert "word/document.xml" in z.namelist()
 
 
 def test_heading_1_text_normalization_changes_known_aliases_without_comments(tmp_path):
