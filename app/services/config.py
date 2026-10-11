@@ -24,3 +24,11 @@ APA_MARGIN_TWIPS = "1440"         # 1 inch = 1440 twips (used by output passes)
 APA_SPACE_AFTER_TWIPS = "0"       # APA-01: no blank line before/after headings
 DOUBLE_SPACING_TWIPS = "480"      # double spacing = 2.0 * 240
 APA_FIRST_LINE_INDENT_TWIPS = "720"  # APA-04: 0.5" first-line indent = 720 twips
+
+# Backward compatibility aliases (C-15)
+DEFAULT_FONT = globals().get("DEFAULT_FONT", "Calibri")
+DEFAULT_FONT_SIZE = globals().get("DEFAULT_FONT_SIZE", 11)
+APA7_DEFAULT_FONT = DEFAULT_FONT
+APA7_DEFAULT_FONT_SIZE_PT = DEFAULT_FONT_SIZE
+APA7_LOCALE = globals().get("DEFAULT_LOCALE", "en-AU")
+APA7_CAROUSEL_RETENTION_ENABLED = globals().get("CAROUSEL_ENABLED", True)

@@ -835,7 +835,7 @@ def _section_heading_present(section: str, para_records: list) -> bool:
     "Results and Discussion" heading counts as Results but NOT as Discussion
     — which is exactly when we want to insert a separate Discussion stub.
     """
-    from app.domain.canonical_jultp_template import CANONICAL_STRUCTURE
+    from app.domain.apa7_template import CANONICAL_STRUCTURE
     aliases = CANONICAL_STRUCTURE["section_aliases"].get(section, [])
     # Discussion has no aliases, so "Results and Discussion" won't match it.
     # Accept a recognised unstyled section heading (not just Heading-1 style):
@@ -922,7 +922,7 @@ def _canonical_insert_index(section: str, all_paras: list) -> int:
     predecessor (i.e. before that predecessor's following Heading-1), else
     just before the nearest PRESENT successor, else at the end.
     """
-    from app.domain.canonical_jultp_template import CANONICAL_STRUCTURE
+    from app.domain.apa7_template import CANONICAL_STRUCTURE
 
     def aliases_for(s):
         return CANONICAL_STRUCTURE["section_aliases"].get(s, [])

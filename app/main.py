@@ -533,7 +533,6 @@ def _build_changes_made(pipeline_result: dict) -> dict:
         + len(pipeline_result.get("table_section_boundary_actions") or [])
         + len(pipeline_result.get("table_keep_together_actions") or [])
         + len(pipeline_result.get("table_page_break_actions") or [])
-        + len(pipeline_result.get("appendix_actions") or [])
     )
 
     # ── Spelling and grammar ──────────────────────────────────────────────

@@ -18,7 +18,7 @@ set so the four passes agree on what counts as body prose.
 
 ``SKIP_STYLES`` is also extended here to include caption styles (Figure
 Title / Number, Table Title / Number) sourced from
-``canonical_jultp_template.CANONICAL_STRUCTURE`` — captions stay
+``apa7_template.CANONICAL_STRUCTURE`` — captions stay
 numeric-only by journal policy and were previously left exposed.
 """
 
@@ -28,7 +28,7 @@ import re
 
 from lxml import etree
 
-from app.domain.canonical_jultp_template import CANONICAL_STRUCTURE
+from app.domain.apa7_template import CANONICAL_STRUCTURE
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WQ = f"{{{W}}}"
