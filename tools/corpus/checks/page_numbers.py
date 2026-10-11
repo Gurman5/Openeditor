@@ -58,7 +58,7 @@ def _even_and_odd(view: AcceptedView) -> bool:
     return settings is not None and _on(parse_xml(settings).find(w("evenAndOddHeaders")))
 
 
-def _sections_in_use(view: AcceptedView, kind: str):
+def sections_in_use(view: AcceptedView, kind: str):
     """For each section: {type: part name or None} of the headers/footers in use.
     kind is "header" or "footer"."""
     targets = _rel_targets(view)
@@ -91,7 +91,7 @@ def _own(el, p) -> bool:
     return owner is p
 
 
-def _is_page(instr: str) -> bool:
+def is_page_instruction(instr: str) -> bool:
     words = instr.split()
     return bool(words) and words[0].upper() == "PAGE"
 
@@ -109,7 +109,7 @@ def page_fields(root) -> list[dict]:
             if el.tag == w("tab"):
                 tabs += 1
             elif el.tag == w("fldSimple"):
-                if _is_page(el.get(w("instr")) or ""):
+                if is_page_instruction(el.get(w("instr")) or ""):
                     found.append({"paragraph": p, "form": "fldSimple", "tabs_before": tabs})
             elif el.tag == w("instrText"):
                 if open_fields:
@@ -120,7 +120,7 @@ def page_fields(root) -> list[dict]:
                     open_fields.append({"instr": "", "tabs": tabs, "done": False})
                 elif kind in ("separate", "end") and open_fields:
                     field = open_fields[-1]
-                    if not field["done"] and _is_page(field["instr"]):
+                    if not field["done"] and is_page_instruction(field["instr"]):
                         found.append({"paragraph": p, "form": "fldChar",
                                       "tabs_before": field["tabs"]})
                     field["done"] = True    # instruction ends at "separate"
@@ -178,8 +178,8 @@ def check_page_numbers(doc: AcceptedView | str | Path) -> dict:
                            else page_fields(accept_revisions(parse_xml(view.parts[part]))))
         return cache[part]
 
-    headers = _sections_in_use(view, "header")
-    footers = _sections_in_use(view, "footer")
+    headers = sections_in_use(view, "header")
+    footers = sections_in_use(view, "footer")
     slots, problems = [], []
     for i, (hdrs, ftrs) in enumerate(zip(headers, footers)):
         for htype, part in hdrs.items():
