@@ -41,7 +41,7 @@ jc = normal.find(f"{WQ}pPr/{WQ}jc") if normal is not None else None
 print("Normal spacing line:", sp.get(f"{WQ}line") if sp is not None else None)
 print("Normal jc:", jc.get(f"{WQ}val") if jc is not None else None)
 
-# C-47 mechanism check (isolated from C-27's Arial pin): the template must
+# C-47 mechanism check (isolated from C-27's Calibri pin): the template must
 # supply Calibri Normal when requested with replace_existing=True.
 from app.services.output_generation_samfix import _ensure_template_styles_available
 scratch = os.path.join(tmp, "scratch.docx")

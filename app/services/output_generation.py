@@ -357,8 +357,6 @@ def _infer_target_phrase(result: dict, para_records: list, para_idx: int) -> str
         return "Abstract"
     if rule_id in ("FP007", "FP008"):
         return "Abstract"
-    if rule_id in {"FP005", "FP009"}:
-        return "Practitioner Notes"
     if rule_id in {"FP006", "FP010"}:
         return "Keywords"
     if rule_id == "STY001":
@@ -615,7 +613,6 @@ def _find_front_matter_rule_anchor(rule_id: str, para_records: list) -> int:
     authors_idx = _find_front_style(para_records, ("Authors",))
     affiliations_idx = _find_front_style(para_records, ("Author Affiliations",))
     abstract_idx = _find_front_text(para_records, "Abstract")
-    prac_idx = _find_front_text(para_records, "Practitioner Notes")
     keywords_idx = _find_front_text(para_records, "Keywords")
 
     if rule_id == "FP001":
@@ -658,26 +655,9 @@ def _find_front_matter_rule_anchor(rule_id: str, para_records: list) -> int:
             return title_idx
         return _find_front_matter_anchor(para_records)
 
-    if rule_id in {"FP005", "FP009"}:
-        if prac_idx is not None:
-            return prac_idx
-        if keywords_idx is not None:
-            return keywords_idx
-        if abstract_idx is not None:
-            after_abstract = _find_after(para_records, abstract_idx, intro_idx)
-            if after_abstract is not None:
-                return after_abstract
-            return abstract_idx
-        return _find_front_matter_anchor(para_records)
-
     if rule_id in {"FP006", "FP010"}:
         if keywords_idx is not None:
             return keywords_idx
-        if prac_idx is not None:
-            after_prac = _find_after(para_records, prac_idx, intro_idx)
-            if after_prac is not None:
-                return after_prac
-            return prac_idx
         if abstract_idx is not None:
             last_front = _find_last_front_non_empty(para_records)
             if last_front is not None:
@@ -1145,8 +1125,6 @@ def _find_para_by_section(section_name: str | None, para_records: list) -> int:
         return _find_front_matter_rule_anchor("FP004", para_records)
     if low in {"keywords", "keyword"}:
         return _find_front_matter_rule_anchor("FP010", para_records)
-    if low in {"practitioner notes", "practitioner note"}:
-        return _find_front_matter_rule_anchor("FP009", para_records)
     if low in {"authors", "author"}:
         return _find_front_matter_rule_anchor("FP002", para_records)
     if low in {"affiliations", "author affiliations"}:

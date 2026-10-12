@@ -35,13 +35,24 @@ class TestSamFixedIdsAreReal:
         # Source-based, not fixture-based: conditional rules (e.g. TAB001,
         # STY004) only emit when the triggering content exists, so absence
         # across fixtures does not mean a dead id. What must hold is that
-        # every filtered id is a rule the validator *can* emit.
-        source = open("app/services/jutlp_validator.py").read()
+        # every filtered id is a rule the validator *can* emit. Track C
+        # spans two validators (JUTLP families + the APA0xx formatting
+        # checks), so scan both sources.
+        # Explicit encoding: Python source is UTF-8 (PEP 3120) and these
+        # files may contain non-ASCII characters, which a platform-default
+        # (cp1252 on Windows) read would fail on.
+        sources = "\n".join(
+            open(p, encoding="utf-8").read() for p in (
+                "app/services/jutlp_validator.py",
+                "app/services/apa7_validator.py",
+                "app/services/apa7_formatting_checks.py",
+            )
+        )
         # Any quoted STABLE id: direct _result("FP007") calls AND tuple-table
         # entries like ("FP004", ...) in check_front_page.
-        literal_ids = set(re.findall(r'"([A-Z]{2,6}\d{3})"', source))
+        literal_ids = set(re.findall(r'"([A-Z]{2,6}\d{3})"', sources))
         generated_families = set(
-            re.findall(r'f"([A-Z]+)\{', source)
+            re.findall(r'f"([A-Z]+)\{', sources)
         )  # SEC/MET/DIS/STY/ANDOR/ETC/DOTPT via f-string
         for rule_id in ro.SAM_FIXED_RULE_IDS:
             family = _family(rule_id)

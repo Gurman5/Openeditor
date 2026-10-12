@@ -29,7 +29,6 @@ from app.services.output_generation_samfix import (
     _apply_intro_page_break,
     _apply_keywords_plan,
     _apply_missing_keywords_stub,
-    _apply_missing_practitioner_stub,
     _apply_normal_style_fix,
     _apply_title_plan,
     _apply_tracked_style_fixes,
@@ -423,91 +422,6 @@ def test_existing_valid_authors_directly_under_title_are_not_moved(tmp_path):
     assert plan["action"] == "none"
 
 
-def test_missing_abstract_plan_still_schedules_practitioner_stub(tmp_path):
-    input_path = tmp_path / "input.docx"
-
-    doc = Document()
-    doc.styles.add_style("Article Title", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Authors", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Author Affiliations", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Heading Front Page", WD_STYLE_TYPE.PARAGRAPH)
-    doc.add_paragraph("Example article title", style="Article Title")
-    doc.add_paragraph("First Authorᵃ, Second Authorᵃ, and Third Authorᵇ", style="Authors")
-    doc.add_paragraph("a Affiliation 1; b Affiliation 2", style="Author Affiliations")
-    doc.add_paragraph("Keywords", style="Heading Front Page")
-    doc.add_paragraph("Introduction", style="Heading 1")
-    doc.save(input_path)
-
-    plan = abstractFormatCheck(str(input_path), abstractFound(str(input_path)))
-
-    assert plan["reason"] == "Abstract heading not found"
-    assert plan["insert_practitioner_stub"] is True
-    assert plan["ensure_practitioner_section"] is True
-    assert plan["practitioner_insert_after_pos"] == 2
-
-
-def test_missing_abstract_practitioner_stub_inserts_before_existing_keywords(tmp_path):
-    input_path = tmp_path / "input.docx"
-    output_path = tmp_path / "output.docx"
-
-    doc = Document()
-    doc.styles.add_style("Article Title", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Authors", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Author Affiliations", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Heading Front Page", WD_STYLE_TYPE.PARAGRAPH)
-    doc.add_paragraph("Example article title", style="Article Title")
-    doc.add_paragraph("First Authorᵃ, Second Authorᵃ, and Third Authorᵇ", style="Authors")
-    doc.add_paragraph("a Affiliation 1; b Affiliation 2", style="Author Affiliations")
-    doc.add_paragraph("Keywords", style="Heading Front Page")
-    doc.add_paragraph("Introduction", style="Heading 1")
-    doc.save(input_path)
-
-    plan = abstractFormatCheck(str(input_path), abstractFound(str(input_path)))
-    changed = _apply_missing_practitioner_stub(str(input_path), str(output_path), plan)
-
-    assert changed is True
-    texts = [p.text.strip() for p in load_paragraphs(str(output_path))[:6]]
-    assert texts == [
-        "Example article title",
-        "First Authorᵃ, Second Authorᵃ, and Third Authorᵇ",
-        "a Affiliation 1; b Affiliation 2",
-        "Practitioner Notes",
-        "",
-        "Keywords",
-    ]
-    assert any("Practitioner Notes section not found" in text for text in _comment_texts(output_path))
-
-
-def test_missing_abstract_practitioner_stub_uses_inserted_affiliations_anchor(tmp_path):
-    input_path = tmp_path / "input.docx"
-    output_path = tmp_path / "output.docx"
-
-    doc = Document()
-    doc.styles.add_style("Article Title", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Authors", WD_STYLE_TYPE.PARAGRAPH)
-    doc.styles.add_style("Heading Front Page", WD_STYLE_TYPE.PARAGRAPH)
-    doc.add_paragraph("Example article title", style="Article Title")
-    doc.add_paragraph("First Authorᵃ, Second Authorᵃ, and Third Authorᵇ", style="Authors")
-    doc.add_paragraph("Keywords", style="Heading Front Page")
-    doc.add_paragraph("Introduction", style="Heading 1")
-    doc.save(input_path)
-
-    plan = abstractFormatCheck(str(input_path), abstractFound(str(input_path)))
-    assert plan["insert_default_affiliations"] is True
-    assert _apply_abstract_plan(str(input_path), str(output_path), plan) is True
-    assert _apply_missing_practitioner_stub(str(output_path), str(output_path), plan) is True
-
-    texts = [p.text.strip() for p in load_paragraphs(str(output_path))[:6]]
-    assert texts == [
-        "Example article title",
-        "First Authorᵃ, Second Authorᵃ, and Third Authorᵇ",
-        "a Affiliation 1; b Affiliation 2",
-        "Practitioner Notes",
-        "",
-        "Keywords",
-    ]
-
-
 def test_missing_authors_reuses_existing_affiliations(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
@@ -810,12 +724,6 @@ def test_abstract_plan_includes_affiliation_style_fix(mock_call, tmp_path):
     doc.add_paragraph("Abstract")
     doc.add_paragraph("This abstract paragraph gives enough text for a simple test.")
     doc.add_paragraph("")
-    doc.add_paragraph("Practioner Notes")
-    doc.add_paragraph("- First note")
-    doc.add_paragraph("- Second note")
-    doc.add_paragraph("- Third note")
-    doc.add_paragraph("- Fourth note")
-    doc.add_paragraph("- Fifth note")
     doc.add_paragraph("Keywords")
     doc.add_paragraph("copy editing; testing")
     doc.save(input_path)
@@ -911,12 +819,6 @@ def test_multiple_affiliation_lines_do_not_keep_style_spacing_between_them(mock_
     doc.add_paragraph("b RMIT University, Australia")
     doc.add_paragraph("Abstract")
     doc.add_paragraph("This abstract paragraph gives enough text for a simple test.")
-    doc.add_paragraph("Practioner Notes")
-    doc.add_paragraph("- First note")
-    doc.add_paragraph("- Second note")
-    doc.add_paragraph("- Third note")
-    doc.add_paragraph("- Fourth note")
-    doc.add_paragraph("- Fifth note")
     doc.add_paragraph("Keywords")
     doc.add_paragraph("copy editing; testing")
     doc.save(input_path)
@@ -960,12 +862,6 @@ def test_inline_keywords_line_is_split_into_heading_and_text(tmp_path):
     output_path = tmp_path / "output.docx"
 
     doc = Document()
-    doc.add_paragraph("Practioner Notes")
-    doc.add_paragraph("- First note")
-    doc.add_paragraph("- Second note")
-    doc.add_paragraph("- Third note")
-    doc.add_paragraph("- Fourth note")
-    doc.add_paragraph("- Fifth note")
     doc.add_paragraph("Keywords: feedback; learning")
     doc.save(input_path)
 
@@ -1726,13 +1622,11 @@ def _make_numbered(paragraph):
     paragraph._p.get_or_add_pPr().append(num_pr)
 
 
-def test_body_plan_flags_word_numbered_normal_paragraphs_but_allows_practitioner_notes(tmp_path):
+def test_body_plan_flags_word_numbered_normal_paragraphs(tmp_path):
     input_path = tmp_path / "input.docx"
 
     doc = Document()
     doc.add_paragraph("Abstract")
-    doc.add_paragraph("Practitioner Notes")
-    _make_numbered(doc.add_paragraph("Allowed practitioner note."))
     doc.add_paragraph("Keywords")
     doc.add_paragraph("Introduction", style="Heading 1")
     _make_numbered(doc.add_paragraph("Body list item styled Normal."))
@@ -1745,18 +1639,16 @@ def test_body_plan_flags_word_numbered_normal_paragraphs_but_allows_practitioner
         if "dot-point" in comment["message"].lower()
     ]
 
-    # The dot-point message was reworded in commit 995bdc2 ("Consolidate
-    # dot-point/acronym comments, …") to be more explicit about the
-    # Practitioner-Notes exception. The intent of the test — that body
-    # numbered paragraphs get flagged at anchor_pos 5 (one bullet, not
-    # multiple, not on Practitioner Notes) — is unchanged.
+    # C-26 removed the Practitioner Notes exemption: APA expects continuous
+    # prose, so a dot-point list is flagged wherever it sits. One bullet here,
+    # so one comment anchored on it.
     assert dot_comments == [
         {
-            "anchor_pos": 5,
+            "anchor_pos": 3,
             "message": (
                 "Dot-point lists are not permitted in academic journal "
-                "manuscripts outside the Practitioner Notes section. "
-                "Please convert this dot-point list to continuous prose."
+                "manuscripts. Please convert this dot-point list to "
+                "continuous prose."
             ),
         }
     ]
@@ -1853,12 +1745,6 @@ def test_build_rechecks_keywords_after_abstract_merge(tmp_path):
     doc.add_paragraph("First abstract paragraph.")
     doc.add_paragraph("Second abstract paragraph.")
     doc.add_paragraph("")
-    doc.add_paragraph("Practioner Notes")
-    doc.add_paragraph("- First note")
-    doc.add_paragraph("- Second note")
-    doc.add_paragraph("- Third note")
-    doc.add_paragraph("- Fourth note")
-    doc.add_paragraph("- Fifth note")
     doc.add_paragraph("Keywords: feedback; learning")
     doc.add_paragraph("Citation")
     doc.add_paragraph("Example citation.")
@@ -1974,11 +1860,6 @@ def _build_doc_missing_keywords(input_path):
         "a twelve-week semester block in higher education."
     )
     doc.add_paragraph("Practitioner Notes")
-    doc.add_paragraph("- First note")
-    doc.add_paragraph("- Second note")
-    doc.add_paragraph("- Third note")
-    doc.add_paragraph("- Fourth note")
-    doc.add_paragraph("- Fifth note")
     doc.add_heading("Introduction", level=1)
     doc.add_paragraph("Opening body paragraph for the introduction section.")
     doc.save(input_path)
@@ -2063,11 +1944,6 @@ def test_keywords_present_paper_untouched_by_generation(tmp_path):
     doc = Document()
     doc.add_paragraph("An Article Title")
     doc.add_paragraph("Practitioner Notes")
-    doc.add_paragraph("- First note")
-    doc.add_paragraph("- Second note")
-    doc.add_paragraph("- Third note")
-    doc.add_paragraph("- Fourth note")
-    doc.add_paragraph("- Fifth note")
     doc.add_paragraph("Keywords")
     doc.add_paragraph("feedback, engagement")
     doc.save(input_path)
@@ -2102,11 +1978,6 @@ def test_keywords_heading_with_no_body_does_not_eat_introduction_paragraph(tmp_p
     doc = Document()
     doc.add_paragraph("An Article Title")
     doc.add_paragraph("Practitioner Notes")
-    doc.add_paragraph("- First note")
-    doc.add_paragraph("- Second note")
-    doc.add_paragraph("- Third note")
-    doc.add_paragraph("- Fourth note")
-    doc.add_paragraph("- Fifth note")
     doc.add_paragraph("Keywords")
     # NO real keywords body. The Introduction H1 is also intentionally
     # not styled — this exercises the `get_front_page` fall-through to
@@ -2131,7 +2002,6 @@ def test_keywords_heading_with_proper_body_still_detected(tmp_path):
     doc = Document()
     doc.add_paragraph("An Article Title")
     doc.add_paragraph("Practitioner Notes")
-    doc.add_paragraph("- First note")
     doc.add_paragraph("Keywords")
     doc.add_paragraph("feedback, engagement, peer review")
     doc.save(input_path)
@@ -2149,7 +2019,6 @@ def test_keywords_scan_stops_at_any_heading_not_just_introduction(tmp_path):
     doc = Document()
     doc.add_paragraph("Article Title")
     doc.add_paragraph("Practitioner Notes")
-    doc.add_paragraph("- First note")
     doc.add_paragraph("Keywords")
     # No keyword body line — next paragraph is a Heading 1 with text OTHER
     # than "Introduction". The scan must break here, not promote it.

@@ -60,18 +60,11 @@ CANONICAL_STRUCTURE = {
         "affiliations_style": "Author Affiliations",
         "abstract_heading": "Abstract",
         "abstract_style": "Front Page Text",
-        # JUTLP front-page rule: the abstract must fit the lines 7–23 region of
-        # the front page (so all summary content stays before the Introduction
-        # on page 2) and be at most 250 words. lines 7–23 inclusive = 17 lines;
-        # at the template's Front Page Text formatting ~250 words ≈ 17 lines, so
-        # the words-per-line estimate keeps the two limits consistent.
+        # APA-08: the abstract is at most 250 words, one unindented
+        # paragraph. The JUTLP front-page layout rule ("must fit lines 7-23")
+        # and its per-line estimate were removed in C-26 with the rest of the
+        # JUTLP front matter.
         "abstract_max_words": 250,
-        "abstract_line_region": [7, 23],
-        "abstract_max_lines": 17,
-        "abstract_words_per_line_estimate": 15,
-        "practitioner_notes_heading": "Practitioner Notes",
-        "practitioner_notes_style": "Practitioner Notes",
-        "practitioner_notes_count": 5,
         "keywords_heading": "Keywords",
         "keywords_max_count": 5,
         "page_break_before_introduction": True,

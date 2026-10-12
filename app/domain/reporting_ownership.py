@@ -25,9 +25,12 @@ comment-only.
 # Validator rule ids Sam's build_edited_document fixes as a tracked change or
 # silent style edit. Excluded from the document comments (filtered_report) and
 # from the payload issues[] (results()). Still counted in changes_made.
+# FP005 (Practitioner Notes) was deleted in C-26 along with the JUTLP front
+# matter; only the presence rules with a live fixer remain.
 SAM_FIXED_RULE_IDS = frozenset({
-    "FP001", "FP002", "FP003", "FP005", "FP006", "FP011",
+    "FP001", "FP002", "FP003", "FP006", "FP011",
     "STY003", "STY004", "SPE002", "TAB001",
+    "APA002", "APA008", "APA009", "APA010", "APA011", "APA012",
 })
 
 
@@ -56,12 +59,13 @@ FAMILY_VERDICTS = {
     "DIS": ("comment",
             "Discussion subsections are check-only, as MET."),
     # Front page. Presence/heading blocks Sam inserts as stubs (tracked
-    # changes); length/count rules stay comments.
+    # changes); length/count rules stay comments. FP005 (Practitioner Notes)
+    # was removed in C-26.
     "FP": ("comment",
            "Default is comment-only; the Sam-fixed presence rules below are "
            "the exception, not the family verdict. FP004/FP007 were removed "
            "from the Sam-fixed set: no Sam pass repairs them.",
-           ["FP001", "FP002", "FP003", "FP005", "FP006", "FP011"]),
+           ["FP001", "FP002", "FP003", "FP006", "FP011"]),
     # Page/section breaks. SPE002 (page break before Introduction) is inserted
     # by Sam; the rest are check-only.
     "SPE": ("comment",
@@ -99,4 +103,11 @@ FAMILY_VERDICTS = {
             "SEC008 and REF003 routes to ref_verifications.",
             ["REF001", "REF003"]),
     "REFE": ("comment", "Reference-format flags are comment-only."),
+    # APA-7 deterministic formatting checks (Track C). Default is
+    # comment-only; APA002 (font sweep) is normalised by the run/style font
+    # pass and APA010/011/012 (references block) by the references-block pass.
+    "APA": ("comment",
+            "Default is comment-only; APA002 and APA010-012 are repaired by "
+            "their tracked/silent formatting passes.",
+            ["APA002", "APA008", "APA009", "APA010", "APA011", "APA012"]),
 }

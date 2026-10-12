@@ -9,7 +9,6 @@ from app.domain.apa7_template import (
     subsection_alias_match,
 )
 from app.services.document_analysis_services import (
-    extract_practitioner_notes,
     get_front_page,
     get_section_bounds,
     load_paragraphs,
@@ -239,7 +238,6 @@ def check_front_page(parsed: dict) -> list[dict]:
         ("FP002", fp["authors_found"],                    "Authors block found",              "Authors block (style 'Authors') not found"),
         ("FP003", fp["affiliations_found"],               "Affiliations block found",         "Affiliations (style 'Author Affiliations') not found"),
         ("FP004", fp["abstract_heading_found"],           "Abstract heading found",           "Abstract heading not found"),
-        ("FP005", fp["practitioner_notes_heading_found"], "Practitioner Notes heading found", "Practitioner Notes heading not found"),
         ("FP006", fp["keywords_heading_found"],           "Keywords heading found",           "Keywords heading not found"),
     ]
 
@@ -253,8 +251,6 @@ def check_abstract(parsed: dict) -> list[dict]:
     front = CANONICAL_STRUCTURE["front_page"]
     abstract = parsed["front_page"]["abstract"]
     max_words = front["abstract_max_words"]
-    max_lines = front["abstract_max_lines"]
-    region = front["abstract_line_region"]
 
     if not abstract["found"]:
         return [
@@ -262,43 +258,23 @@ def check_abstract(parsed: dict) -> list[dict]:
             _result("FP008", "fail", "Abstract length cannot be checked — abstract not found"),
         ]
 
-    # JUTLP rule: the abstract must fit lines 7–23 of the front page (≤ max_lines
-    # lines) AND be ≤ max_words words — both are length limits on one element.
+    # APA-08: the abstract is at most 250 words. The JUTLP "must fit lines
+    # 7-23 of the front page" line-region rule is gone (C-26) — it was a JUTLP
+    # layout constraint on the editorial front page, not an APA requirement.
     wc = abstract["word_count"]
-    lc = abstract.get("line_count", 0)
     over_words = wc > max_words
-    over_lines = lc > max_lines
 
-    if over_words or over_lines:
-        parts = []
-        if over_lines:
-            parts.append(
-                f"~{lc} lines (must fit lines {region[0]}–{region[1]}, i.e. max {max_lines})"
-            )
-        if over_words:
-            parts.append(f"{wc} words (max {max_words})")
+    if over_words:
         status = "fail"
-        msg = "Abstract is too long: " + " and ".join(parts) + "."
+        msg = f"Abstract is too long: {wc} words (max {max_words})."
     else:
         status = "pass"
-        msg = (
-            f"Abstract length OK ({wc} words, ~{lc} lines; "
-            f"limits: {max_words} words / {max_lines} lines)"
-        )
+        msg = f"Abstract length OK ({wc} words, max {max_words})"
 
     return [
         _result("FP007", "pass", "Abstract body found"),
         _result("FP008", status, msg),
     ]
-
-
-def check_practitioner_notes(parsed: dict) -> list[dict]:
-    count = parsed["front_page"]["practitioner_notes_count"]
-    required = CANONICAL_STRUCTURE["front_page"]["practitioner_notes_count"]
-
-    if count == required:
-        return [_result("FP009", "pass", f"Practitioner notes: {count} (required {required})")]
-    return [_result("FP009", "fail", f"Practitioner notes: {count} found, {required} required")]
 
 
 def check_keywords(parsed: dict) -> list[dict]:
@@ -474,25 +450,44 @@ def check_dot_points(docx_path: str) -> list[dict]:
     """Flag bullet/numbered list paragraphs — continuous prose is expected in JUTLP."""
     doc = DocxDocument(docx_path)
 
-    in_practitioner_notes = False
-    first_idx = None
-    first_anchor = ""
-    total_items = 0
+    results: list[dict] = []
+    group_start_idx = None
+    group_anchor = ""
+    group_count = 0
+
+    def _flush_group() -> None:
+        nonlocal group_start_idx, group_anchor, group_count
+        if group_start_idx is None:
+            return
+        n = len(results) + 1
+        message = "Avoid bullet/dot-point lists — continuous prose is expected in academic journal manuscripts."
+        if group_count > 1:
+            message = (
+                "This list contains "
+                + str(group_count)
+                + " bullet/dot-point items. Convert the list to continuous prose for an academic journal manuscript."
+            )
+        results.append({
+            "rule_id": f"DOTPT{n:03d}",
+            "status": "fail",
+            "message": message,
+            "para_idx": group_start_idx,
+            "anchor_phrase": group_anchor,
+        })
+        group_start_idx = None
+        group_anchor = ""
+        group_count = 0
 
     for i, p in enumerate(doc.paragraphs):
         text = (p.text or "").strip()
         if not text:
             continue
         low = text.lower()
-        if low in {"practitioner notes", "practioner notes"}:
-            in_practitioner_notes = True
-            continue
         if low == "keywords":
-            in_practitioner_notes = False
-        if in_practitioner_notes:
-            continue
+            _flush_group()
         style_name = p.style.name if p.style else ""
         if style_name in _INFORMAL_SKIP_STYLES:
+            _flush_group()
             continue
 
         is_list = "list" in style_name.lower()
@@ -502,32 +497,22 @@ def check_dot_points(docx_path: str) -> list[dict]:
                 is_list = True
 
         if not is_list:
+            _flush_group()
             continue
 
-        total_items += 1
-        if first_idx is None:
-            first_idx = i
-            words = text.split()
-            first_anchor = " ".join(words[:4]) if len(words) >= 4 else text
+        words = text.split()
+        anchor = " ".join(words[:4]) if len(words) >= 4 else text
+        if group_start_idx is None:
+            group_start_idx = i
+            group_anchor = anchor
+        group_count += 1
 
-    if total_items == 0:
+    _flush_group()
+
+    if not results:
         return [_result("DOTPT000", "pass", "No bullet or dot-point lists found")]
 
-    if total_items == 1:
-        message = "Avoid bullet/dot-point lists — continuous prose is expected in academic journal manuscripts."
-    else:
-        message = (
-            "Avoid bullet/dot-point lists — continuous prose is expected in academic journal manuscripts. "
-            f"Found {total_items} bullet/dot-point items."
-        )
-
-    return [{
-        "rule_id": "DOTPT001",
-        "status": "fail",
-        "message": message,
-        "para_idx": first_idx,
-        "anchor_phrase": first_anchor,
-    }]
+    return results
 
 
 # ── New constants for additional checks ──────────────────────────────────────
@@ -542,7 +527,11 @@ _FIGURE_TITLE_STYLES = frozenset({
 
 _BODY_SKIP_STYLES = frozenset({
     "Article Title", "Authors", "Author Affiliations",
-    "Heading Front Page", "Front Page Text", "Practitioner Notes",
+    "Heading Front Page", "Front Page Text",
+    # Legacy tolerance: a leftover Practitioner Notes block is no longer an APA
+    # element (C-26), so it is not remediated — but flagging its style as a
+    # body-style violation would be noise the author cannot action.
+    "Practitioner Notes",
     "Heading 1", "Heading 2", "Heading 3",
     *_FIGURE_NUMBER_STYLES,
     *_FIGURE_TITLE_STYLES,
@@ -560,11 +549,10 @@ _FIG_NUM_RE = re.compile(r"Figure\s+(\d+)", re.IGNORECASE)
 _TAB_NUM_RE = re.compile(r"Table\s+(\d+)", re.IGNORECASE)
 _ABBREV_RE  = re.compile(r"\b[A-Z]{2,5}\b")
 _EQUAL_CONTRIB_RE = re.compile(r"equal.*contribut|contribut.*equal", re.IGNORECASE)
-_PN_MAX_WORDS = 30
 
 
 def check_abstract_single_paragraph(parsed: dict) -> list[dict]:
-    """FP011: JUTLP requires an unstructured single-paragraph abstract."""
+    """FP011: APA requires an unstructured single-paragraph abstract."""
     abstract = parsed["front_page"]["abstract"]
     if not abstract["found"]:
         return []
@@ -572,24 +560,7 @@ def check_abstract_single_paragraph(parsed: dict) -> list[dict]:
     if count <= 1:
         return [_result("FP011", "pass", "Abstract is a single paragraph")]
     return [_result("FP011", "fail",
-        f"Abstract spans {count} paragraphs — JUTLP requires an unstructured single-paragraph abstract")]
-
-
-def check_practitioner_note_length(docx_path: str) -> list[dict]:
-    """FP012: Each practitioner note should be no more than 2 lines (~30 words)."""
-    paragraphs = load_paragraphs(docx_path)
-    notes = extract_practitioner_notes(paragraphs)
-    if not notes:
-        return []
-    flags = []
-    for i, note in enumerate(notes, start=1):
-        wc = len(note.text.split())
-        if wc > _PN_MAX_WORDS:
-            flags.append(_result("FP012", "warn",
-                f"Practitioner note {i} is {wc} words — each note should be no more than 2 lines (~{_PN_MAX_WORDS} words)"))
-    if not flags:
-        return [_result("FP012", "pass", "All practitioner notes are within the 2-line limit")]
-    return flags
+        f"Abstract spans {count} paragraphs — APA requires an unstructured single-paragraph abstract")]
 
 
 def check_keyword_abbreviations(parsed: dict) -> list[dict]:
@@ -763,8 +734,6 @@ def validate(docx_path: str) -> dict:
     results += check_front_page(parsed)
     results += check_abstract(parsed)
     results += check_abstract_single_paragraph(parsed)
-    results += check_practitioner_notes(parsed)
-    results += check_practitioner_note_length(docx_path)
     results += check_keywords(parsed)
     results += check_keyword_abbreviations(parsed)
     results += check_forbidden_styles(parsed)

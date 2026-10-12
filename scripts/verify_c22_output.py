@@ -141,6 +141,19 @@ if normal is not None:
     check("Normal rFonts=Calibri (C-27)",
           rf is not None and rf.get(f"{WQ}ascii") == "Calibri",
           rf.get(f"{WQ}ascii") if rf is not None else None)
+    check("Normal rFonts hAnsi/cs/eastAsia=Calibri (C-27)",
+          rf is not None and all(rf.get(f"{WQ}{a}") == "Calibri"
+                                 for a in ("hAnsi", "cs", "eastAsia")),
+          {a: (rf.get(f"{WQ}{a}") if rf is not None else None)
+           for a in ("hAnsi", "cs", "eastAsia")})
+    check("Normal rFonts carries no theme binding (C-27)",
+          rf is not None and all(rf.get(f"{WQ}{a}") is None
+                                 for a in ("asciiTheme", "hAnsiTheme",
+                                           "eastAsiaTheme", "cstheme")),
+          "theme-bound" if rf is not None and any(
+              rf.get(f"{WQ}{a}") is not None
+              for a in ("asciiTheme", "hAnsiTheme",
+                        "eastAsiaTheme", "cstheme")) else "explicit")
 print()
 
 print("== body paragraphs free of JUTLP overrides ==")

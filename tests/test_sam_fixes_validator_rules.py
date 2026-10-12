@@ -88,15 +88,6 @@ def test_fp003_author_plan_inserts_affiliations(tmp_path):
     assert _status_of(validate(str(out)), "FP003") == "pass"
 
 
-def test_fp005_practitioner_stub(tmp_path):
-    """FP005 fixed by S._apply_missing_practitioner_stub (tracked change)."""
-    src = tmp_path / "in.docx"
-    shutil.copy(SRC, src)
-    out = tmp_path / "out.docx"
-    _run_full_build(src, out)
-    assert _status_of(validate(str(out)), "FP005") == "pass"
-
-
 def test_fp006_keywords_stub(tmp_path):
     """FP006 fixed by S._apply_missing_keywords_stub (tracked change)."""
     src = tmp_path / "in.docx"
@@ -199,6 +190,7 @@ def test_not_sam_fixed(rule_id):
 
 def test_sam_fixed_set_matches_evidence():
     assert SAM_FIXED_RULE_IDS == {
-        "FP001", "FP002", "FP003", "FP005", "FP006", "FP011",
+        "FP001", "FP002", "FP003", "FP006", "FP011",
         "STY003", "STY004", "SPE002", "TAB001",
+        "APA002", "APA008", "APA009", "APA010", "APA011", "APA012",
     }

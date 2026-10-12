@@ -1,4 +1,4 @@
-"""Tests for body-font enforcement: the Normal style must carry Arial 11pt so
+"""Tests for body-font enforcement: the Normal style must carry Calibri 11pt so
 inherited body text is not left at Word's 10pt default."""
 
 import zipfile
@@ -55,7 +55,7 @@ def _doc_with_normal(tmp_path, font="Times New Roman", sz="24"):
     return str(forced)
 
 
-def test_normal_style_pinned_to_arial_11pt(tmp_path):
+def test_normal_style_pinned_to_calibri_11pt(tmp_path):
     src = _doc_with_normal(tmp_path, font="Times New Roman", sz="20")
     out = tmp_path / "out.docx"
     changed = _ensure_normal_style_body_rpr(src, str(out))

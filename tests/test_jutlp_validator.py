@@ -38,11 +38,11 @@ def _make_numbered(paragraph):
     paragraph._p.get_or_add_pPr().append(num_pr)
 
 
-def test_dot_points_allowed_only_in_practitioner_notes(tmp_path):
+def test_dot_points_flagged_everywhere(tmp_path):
+    # C-26 removed the Practitioner Notes exemption: APA expects continuous
+    # prose, so a dot-point list is flagged wherever it appears.
     path = tmp_path / "input.docx"
     doc = Document()
-    doc.add_paragraph("Practitioner Notes")
-    _make_numbered(doc.add_paragraph("Allowed practitioner note."))
     doc.add_paragraph("Keywords")
     _make_numbered(doc.add_paragraph("Body list item."))
     doc.save(path)
@@ -50,7 +50,7 @@ def test_dot_points_allowed_only_in_practitioner_notes(tmp_path):
     fails = [r for r in check_dot_points(str(path)) if r["status"] == "fail"]
 
     assert len(fails) == 1
-    assert fails[0]["para_idx"] == 3
+    assert fails[0]["para_idx"] == 1
 
 
 def test_required_literature_and_method_messages_include_expected_location():
@@ -149,7 +149,7 @@ class TestValidIdentified:
 
     def test_front_page_passes(self, report):
         rd = rules(report)
-        for rule_id in ["FP001", "FP002", "FP003", "FP004", "FP005", "FP006"]:
+        for rule_id in ["FP001", "FP002", "FP003", "FP004", "FP006"]:
             assert rd[rule_id] == "pass", f"{rule_id} should pass on valid doc"
 
     def test_abstract_passes(self, report):
@@ -157,8 +157,12 @@ class TestValidIdentified:
         assert rd["FP007"] == "pass"
         assert rd["FP008"] == "pass"
 
-    def test_practitioner_notes_pass(self, report):
-        assert rules(report)["FP009"] == "pass"
+    def test_practitioner_notes_rules_are_absent(self, report):
+        # C-26 removed Practitioner Notes (APA-20): FP005/FP009/FP012 must no
+        # longer be emitted, and their absence must not count as a failure.
+        rd = rules(report)
+        for gone in ("FP005", "FP009", "FP012"):
+            assert gone not in rd
 
     def test_keywords_pass(self, report):
         assert rules(report)["FP010"] == "pass"
@@ -194,11 +198,11 @@ class TestFrontPageIssues:
     def report(self):
         return validate(f"{PACK}/03_front_page_issues.docx")
 
-    def test_exactly_two_failures(self, report):
-        assert report["fail"] == 2
-
-    def test_practitioner_notes_count_wrong(self, report):
-        assert rules(report)["FP009"] == "fail"
+    def test_exactly_one_failure(self, report):
+        # Was 2 before C-26: the missing-Practitioner-Notes failure (FP005) is
+        # gone, leaving the too-many-keywords failure.
+        assert report["fail"] == 1
+        assert rules(report)["FP010"] == "fail"
 
     def test_too_many_keywords(self, report):
         assert rules(report)["FP010"] == "fail"

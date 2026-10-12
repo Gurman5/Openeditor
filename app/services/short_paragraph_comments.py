@@ -103,7 +103,7 @@ def apply_short_paragraph_comments(
 
     for para_idx, (para_el, zone) in enumerate(iter_paragraphs_with_zone(doc_root)):
         # The 3-sentence guideline is a body-prose recommendation. Front-
-        # matter (title, abstract, practitioner notes, keywords) and end-
+        # matter (title, abstract, keywords) and end-
         # matter (acknowledgements, references) follow different formatting
         # rules and should never be flagged for expansion.
         if zone != "body":

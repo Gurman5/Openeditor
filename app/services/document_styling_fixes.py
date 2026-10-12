@@ -238,7 +238,7 @@ def compare_document_styles(target_docx_path):
                 }
             )
 
-        stop_words = ["practitioner notes", "keywords", "citation"]
+        stop_words = ["keywords", "citation"]
         abstract_body = _collect_until(front_page, abstract_heading.index, stop_words)
         for paragraph in abstract_body:
             if paragraph.style != front_page_text_style:
@@ -248,48 +248,6 @@ def compare_document_styles(target_docx_path):
                         "part": "abstract_text",
                         "index": paragraph.index,
                         "expected_style": front_page_text_style,
-                        "actual_style": paragraph.style,
-                        "text": paragraph.text,
-                    }
-                )
-
-    # Practitioner Notes heading + items
-    practitioner_heading = _find_first_text(front_page, "Practitioner Notes")
-    if practitioner_heading is None:
-        mismatches.append(
-            {
-                "type": "front_page",
-                "part": "practitioner_notes_heading",
-                "index": None,
-                "expected_style": heading_front_page_style,
-                "actual_style": None,
-                "text": "Practitioner Notes",
-            }
-        )
-    else:
-        if practitioner_heading.style != heading_front_page_style:
-            mismatches.append(
-                {
-                    "type": "front_page",
-                    "part": "practitioner_notes_heading",
-                    "index": practitioner_heading.index,
-                    "expected_style": heading_front_page_style,
-                    "actual_style": practitioner_heading.style,
-                    "text": practitioner_heading.text,
-                }
-            )
-
-        pn_style = CANONICAL_STRUCTURE["front_page"]["practitioner_notes_style"]
-        stop_words = ["keywords", "citation"]
-        pn_body = _collect_until(front_page, practitioner_heading.index, stop_words)
-        for paragraph in pn_body:
-            if paragraph.style != pn_style:
-                mismatches.append(
-                    {
-                        "type": "front_page",
-                        "part": "practitioner_notes_item",
-                        "index": paragraph.index,
-                        "expected_style": pn_style,
                         "actual_style": paragraph.style,
                         "text": paragraph.text,
                     }

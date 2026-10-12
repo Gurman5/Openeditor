@@ -168,6 +168,45 @@ def apply_title_page_styles(doc):
         _set_size_cs(style)
 
 
+def apply_front_matter_styles(doc):
+    """APA-08/09 front-matter styles: abstract heading/body, keywords.
+
+    These four styles did not exist in the APA base template, so the passes
+    that retag the Abstract heading and Keywords line to them silently
+    no-opped (``_ensure_template_styles_available`` skips a style with no
+    matching ``<w:style>``) and those paragraphs fell back to Normal — left
+    aligned, not bold. Adding them here makes the existing style-based
+    machinery work as written (C-26).
+
+    Deliberately absent: ``Practitioner Notes``. That JUTLP front-matter block
+    was removed in C-26 and must not be reintroduced by the template.
+    """
+    paras = {
+        # name: (bold, italic, alignment, left_indent)
+        "Heading Front Page": (True, False, WD_ALIGN_PARAGRAPH.CENTER, 0),
+        "Front Page Text": (False, False, WD_ALIGN_PARAGRAPH.LEFT, 0),
+        "Keywords": (False, False, WD_ALIGN_PARAGRAPH.LEFT, 720),
+    }
+    for name, (bold, italic, align, left) in paras.items():
+        style = _ensure_para_style(doc, name)
+        _set_font(style, bold=bold, italic=italic)
+        style.paragraph_format.alignment = align
+        if name == "Heading Front Page":
+            style.paragraph_format.keep_with_next = True
+        pPr = style.element.get_or_add_pPr()
+        _set_spacing(pPr, line="480", after="0")
+        # APA-08: the abstract body carries NO first-line indent; APA-09: the
+        # keywords line is indented half an inch.
+        _set_ind(pPr, left=str(left), first_line="0")
+        _remove_rpr_theme_and_colour(style)
+        _set_size_cs(style)
+
+    # APA-09: the "Keywords:" label is italic, the terms that follow are not.
+    label = _ensure_char_style(doc, "Keywords Label", italic=True)
+    _remove_rpr_theme_and_colour(label)
+    _set_size_cs(label)
+
+
 def clean_linked_heading_character_styles(doc):
     """Remove Word-default theme colours from linked title/heading styles."""
     for name in (
@@ -368,19 +407,17 @@ def build_skeleton(doc):
     _centered(doc, "Dr. Instructor Name")
     _centered(doc, "October 10, 2026")
     doc.add_page_break()
-    # ---- Abstract + Keywords ----
-    doc.add_paragraph("Abstract", style="Heading 1")
-    abs_p = doc.add_paragraph(style="Normal")
-    abs_p.paragraph_format.first_line_indent = Pt(0)
+    # ---- Abstract + Keywords (APA-08 / APA-09) ----
+    doc.add_paragraph("Abstract", style="Heading Front Page")
+    abs_p = doc.add_paragraph(style="Front Page Text")
     abs_p.add_run(
         "This abstract is a single unindented paragraph of no more than 250 words "
         "summarising the paper topic, method, results, and conclusions. "
         "Replace this guidance text with the manuscript abstract."
     )
-    kw = doc.add_paragraph(style="Normal")
-    kw.paragraph_format.left_indent = Inches(0.5)
+    kw = doc.add_paragraph(style="Keywords")
     run = kw.add_run("Keywords:")
-    run.italic = True
+    run.style = doc.styles["Keywords Label"]
     kw.add_run(" apa style, manuscript template, open editor")
     doc.add_page_break()
     # ---- Body (title repeated; no Introduction heading) ----
@@ -497,6 +534,7 @@ def main():
 
     apply_title_style(doc.styles["Title"])
     apply_title_page_styles(doc)
+    apply_front_matter_styles(doc)
     clean_linked_heading_character_styles(doc)
 
     ensure_reference_styles(doc)

@@ -92,7 +92,7 @@ class TestSystemPrompt:
         parsed = _make_parsed_structure()
         system, _ = build_prompts(paragraphs, parsed)
 
-        assert "APA 7 Editorial Guidelines" in system
+        assert "JUTLP Editorial Guidelines" in system
 
     def test_contains_all_categories(self):
         paragraphs = _make_paragraphs()
@@ -102,14 +102,15 @@ class TestSystemPrompt:
         for cat in VALID_CATEGORIES:
             assert cat in system
 
-    def test_contains_copy_editor_persona(self):
+    def test_contains_activist_persona(self):
         paragraphs = _make_paragraphs()
         parsed = _make_parsed_structure()
         system, _ = build_prompts(paragraphs, parsed)
 
-        # The persona is now "APA7 copy editor". Match the load-bearing
-        # tokens so minor future rewording doesn't break the test, while
-        # still catching a complete persona-loss.
+        # The persona was reworded to "activist sub-editor / copy editor".
+        # Match the load-bearing tokens so minor future rewording doesn't
+        # break the test, while still catching a complete persona-loss.
+        assert "activist" in system
         assert ("copy editor" in system) or ("copy-editor" in system)
 
     def test_contains_exclusion_rules(self):
@@ -169,12 +170,15 @@ class TestUserPrompt:
 
         assert "investigates the impact of teaching methods" in user
 
-    def test_practitioner_notes_not_in_prompt(self):
+    def test_practitioner_notes_are_not_sent(self):
+        # C-26 removed Practitioner Notes (APA-20): the prompt must not carry
+        # a PN block even when the manuscript still has one.
         paragraphs = _make_paragraphs()
         parsed = _make_parsed_structure()
         _, user = build_prompts(paragraphs, parsed)
 
         assert "Practitioner Notes" not in user
+        assert "Note one about practice." not in user
 
     def test_contains_sections(self):
         paragraphs = _make_paragraphs()
@@ -300,7 +304,8 @@ class TestUserPrompt:
         _, user = build_prompts(paragraphs, parsed)
 
         # Without Article Title style, falls back to first non-empty paragraph.
-        assert "## Title" in user
+        # Title header now includes the word count, e.g. "## Title (2 words; ...)".
+        assert "## Title (" in user
         assert "Not found" not in user
 
     def test_missing_abstract_is_omitted(self):

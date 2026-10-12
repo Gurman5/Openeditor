@@ -1,4 +1,4 @@
-"""Tests for run-level font normalisation (Arial; references at 11pt)."""
+"""Tests for run-level font normalisation (Calibri; references at 11pt)."""
 
 import zipfile
 
@@ -36,7 +36,7 @@ def _set_run_font(p, name, size_pt):
         run.font.size = Pt(size_pt)
 
 
-def test_direct_times_run_becomes_arial(tmp_path):
+def test_direct_times_run_becomes_calibri(tmp_path):
     doc = Document()
     p = doc.add_paragraph("Body text in the wrong font.")
     _set_run_font(p, "Times New Roman", 12)
@@ -48,7 +48,7 @@ def test_direct_times_run_becomes_arial(tmp_path):
     assert len(actions) >= 1
     fonts = [f for f, _ in _current_fonts_and_sizes(str(out))]
     assert "Times New Roman" not in fonts
-    assert all(f in (None, "Arial") for f in fonts)
+    assert all(f in (None, "Calibri") for f in fonts)
 
 
 def _find_or_make(parent, tag):
@@ -58,7 +58,7 @@ def _find_or_make(parent, tag):
     return el
 
 
-def test_reference_runs_set_to_arial_11pt(tmp_path):
+def test_reference_runs_set_to_calibri_11pt(tmp_path):
     doc = Document()
     doc.add_paragraph("References", style="Heading 1")
     doc.add_paragraph("Adams, B. (2020). A study. Journal of Things.")
@@ -87,26 +87,28 @@ def test_reference_runs_set_to_arial_11pt(tmp_path):
     out = tmp_path / "out.docx"
     _, actions = apply_run_font_corrections(str(src), str(out))
     assert any(a["ref"] for a in actions)
-    # the reference run is now Arial 22 (11pt)
+    # the reference run is now Calibri 22 (11pt)
     fonts_sizes = _current_fonts_and_sizes(str(out))
     ref_run = fonts_sizes[-1]
-    assert ref_run == ("Arial", "22")
+    assert ref_run == ("Calibri", "22")
 
 
 def test_inheriting_run_untouched(tmp_path):
-    # A run with no direct font (inherits Normal) is left alone outside refs.
+    # A run with no direct font (inherits Normal) gets no RUN-level change.
+    # The style layer may still pin styles.xml/docDefaults (scope != "run"),
+    # since a stock python-docx Normal resolves through the Office theme.
     doc = Document()
     doc.add_paragraph("Plain inheriting paragraph.")
     src = tmp_path / "in.docx"
     doc.save(str(src))
     out = tmp_path / "out.docx"
     _, actions = apply_run_font_corrections(str(src), str(out))
-    assert actions == []
+    assert all(a.get("scope") != "run" for a in actions)
 
 
 def test_reconstructed_reference_run_inside_ins_styled_directly(tmp_path):
     """A reconstructed reference run (inside <w:ins>, as the APA-7 format pass
-    emits) is set to Arial 11pt DIRECTLY — no rPrChange nested in the insertion."""
+    emits) is set to Calibri 11pt DIRECTLY — no rPrChange nested in the insertion."""
     doc = Document()
     doc.add_paragraph("References", style="Heading 1")
     doc.add_paragraph("placeholder")
@@ -144,7 +146,7 @@ def test_reconstructed_reference_run_inside_ins_styled_directly(tmp_path):
         root2 = etree.fromstring(z.read("word/document.xml"))
     ins_run = root2.find(f"{WQ}body").findall(f"{WQ}p")[-1].find(f"{WQ}ins").find(f"{WQ}r")
     rpr2 = ins_run.find(f"{WQ}rPr")
-    assert rpr2.find(f"{WQ}rFonts").get(f"{WQ}ascii") == "Arial"
+    assert rpr2.find(f"{WQ}rFonts").get(f"{WQ}ascii") == "Calibri"
     assert rpr2.find(f"{WQ}sz").get(f"{WQ}val") == "22"
     # styled directly — no rPrChange nested inside the insertion
     assert rpr2.find(f"{WQ}rPrChange") is None

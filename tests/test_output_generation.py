@@ -150,7 +150,7 @@ class TestOneFailureOneComment:
 
 
 
-class TestTwoFailuresTwoComments:
+class TestOneFailureOneComment:
     @pytest.fixture(scope="class")
     def output(self, tmp_path_factory):
         out = str(tmp_path_factory.mktemp("out") / "03_out.docx")
@@ -161,8 +161,10 @@ class TestTwoFailuresTwoComments:
     def test_output_file_created(self, output):
         assert os.path.exists(output)
 
-    def test_two_comments_added(self, output):
-        assert count_comments_in_docx(output) == 2
+    def test_one_comment_added(self, output):
+        # Was 2 before C-26: the missing-Practitioner-Notes comment (FP005)
+        # is gone, leaving the too-many-keywords comment (FP010).
+        assert count_comments_in_docx(output) == 1
 
 
 class TestFiveFailuresFiveComments:

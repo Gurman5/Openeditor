@@ -20,6 +20,7 @@ from app.domain.apa7_template import (
 from app.services.acronym_store import load_acronyms
 from app.services.ai.llm_client import call_llm_json
 from app.services.body_llm_edits import build_body_edit_plan
+from app.services.abstract_keywords_formatting import apply_abstract_keywords_formatting
 from app.services.document_analysis_services import get_front_page, load_paragraphs
 from app.services.document_styling_fixes import extract_template_styles
 from app.services.editorial_review_comments import build_editorial_review_comment_plan
@@ -28,6 +29,7 @@ from app.services.language_corrections import AU_CORRECTIONS as _AU_CORRECTIONS
 from app.services.narrative_citation_corrections import apply_narrative_citation_corrections
 from app.services.output_filename import build_output_filename_from_author_line
 from app.services.quotation_utils import find_quote_spans
+from app.services.references_block_corrections import apply_references_block_corrections
 from app.services.run_font_corrections import apply_run_font_corrections
 from app.services.timestamps import now_sydney_iso
 from app.services import config as _APA7_CONFIG
@@ -1224,7 +1226,7 @@ def _find_content_authors(front, title_idx):
         if p.is_empty is True:
             continue
         if _normalised_label_text(p.text) in {
-            "abstract", "keywords", "citation", "introduction", "practitioner notes", "practioner notes",
+            "abstract", "keywords", "citation", "introduction",
             "proposed article title", "rationale", "research questions",
         }:
             break
@@ -1580,7 +1582,7 @@ def _find_existing_affiliations_for_missing_authors(docxpath, title_idx):
         low = p.text.strip().lower()
         if p.index <= title_idx or p.is_empty is True:
             continue
-        if low in ["abstract", "keywords", "citation", "introduction", "practitioner notes", "practioner notes"]:
+        if low in ["abstract", "keywords", "citation", "introduction"]:
             break
         if p.style == AFFILIATIONS_REQUIRED_STYLE or _paragraph_has_affiliations_block(p.text) is True:
             positions.append(p.index)
@@ -2182,30 +2184,14 @@ ABSTRACT_REQUIRED_HEADING_STYLE = _resolve_style_name("Heading Front Page")
 ABSTRACT_REQUIRED_PARAGRAPH_STYLE = _resolve_style_name("Front Page Text")
 ABSTRACT_REQUIRED_HEADING_STYLE_ID = _resolve_style_id(ABSTRACT_REQUIRED_HEADING_STYLE)
 ABSTRACT_REQUIRED_PARAGRAPH_STYLE_ID = _resolve_style_id(ABSTRACT_REQUIRED_PARAGRAPH_STYLE)
-# Abstract front-page length rule (single source of truth in the canonical
-# template): the abstract must fit lines 7–23 of the front page (= 17 lines)
-# and be at most 250 words.
+# APA-08 length rule (single source of truth in the canonical template): the
+# abstract is at most 250 words. The JUTLP "fit lines 7-23 of the front page"
+# rule and the Practitioner Notes block it belonged to are gone (C-26).
 _ABSTRACT_RULE = CANONICAL_STRUCTURE["front_page"]
-ABSTRACT_REGION_START_LINE, ABSTRACT_REGION_END_LINE = _ABSTRACT_RULE["abstract_line_region"]
-ABSTRACT_MAX_LINES = _ABSTRACT_RULE["abstract_max_lines"]
 ABSTRACT_MAX_WORDS = _ABSTRACT_RULE["abstract_max_words"]
-PRACTITIONER_REQUIRED_HEADING_STYLE = _resolve_style_name("Heading Front Page")
-PRACTITIONER_REQUIRED_NOTE_STYLE = _resolve_style_name("Practitioner Notes")
-PRACTITIONER_REQUIRED_HEADING_STYLE_ID = _resolve_style_id(PRACTITIONER_REQUIRED_HEADING_STYLE)
-PRACTITIONER_REQUIRED_NOTE_STYLE_ID = _resolve_style_id(PRACTITIONER_REQUIRED_NOTE_STYLE)
-PRACTITIONER_INSERTED_HEADING_SIZE_HALF_POINTS = 28
-PRACTITIONER_REQUIRED_NOTE_COUNT = 5
-PRACTITIONER_MAX_LINES_PER_NOTE = 2
-ABSTRACT_WORDS_PER_LINE_ESTIMATE = _ABSTRACT_RULE["abstract_words_per_line_estimate"]
-
-
-#find practitioner notes heading from front page
-def _find_practitioner_heading_in_front(front):
-    for p in front:
-        low = p.text.strip().lower()
-        if low == "practitioner notes" or low == "practioner notes":
-            return p
-    return None
+# Size (half-points) for a front-matter heading we insert ourselves, so a
+# tracked stub heading matches the template's front-page heading weight.
+ABSTRACT_INSERTED_HEADING_SIZE_HALF_POINTS = 28
 
 
 #heuristic check for if line looks like affiliation institution line
@@ -2353,7 +2339,10 @@ def _find_affiliations_end_pos(front, abstract_heading_index, skip_index=None):
 #marks where abstract body scanning should stop
 def _is_abstract_body_end_marker(paragraph):
     low = paragraph.text.strip().lower()
-    if low == "practioner notes" or low == "practitioner notes":
+    # Practitioner Notes is a legacy terminator only (not required, not
+    # checked, not inserted) — see document_analysis_services. Keeping the scan
+    # stopping there stops a leftover PN block inflating the abstract.
+    if low in ("practioner notes", "practitioner notes"):
         return True
     if low == "keywords" or low == "keyword":
         return True
@@ -2366,25 +2355,6 @@ def _is_abstract_body_end_marker(paragraph):
     if paragraph.style == "Heading 1" and low == "introduction":
         return True
     return False
-
-
-#line counting for abstract paragraph (supports wrapped-line estimate)
-def _count_abstract_lines(text):
-    plain_line_count = _count_title_lines(text)
-    if text.strip() == "":
-        return 0
-
-    if "\n" in text:
-        return plain_line_count
-
-    word_count = _count_title_words(text)
-    if word_count == 0:
-        return plain_line_count
-
-    estimated_line_count = (word_count + ABSTRACT_WORDS_PER_LINE_ESTIMATE - 1) // ABSTRACT_WORDS_PER_LINE_ESTIMATE
-    if estimated_line_count < plain_line_count:
-        return plain_line_count
-    return estimated_line_count
 
 
 #LLM abstract content coverage check (problem/method/findings/etc)
@@ -2511,8 +2481,6 @@ def abstractFound(docxpath):
                 anchor_pos = p.index
                 break
 
-    practitioner_heading = _find_practitioner_heading_in_front(front)
-
     abstract_all_body = []
     abstract_body_paragraphs = []
     if abstract_heading is not None:
@@ -2538,7 +2506,6 @@ def abstractFound(docxpath):
     if len(abstract_body_paragraphs) > 0:
         abstract_paragraph = abstract_body_paragraphs[0]
 
-    abstract_line_count = 0
     abstract_word_count = 0
     abstract_paragraph_style_ok = False
     abstract_text = ""
@@ -2546,51 +2513,9 @@ def abstractFound(docxpath):
     if abstract_paragraph is not None:
         abstract_text = " ".join(p.text for p in abstract_body_paragraphs)
         abstract_paragraph_pos = abstract_paragraph.index
-        abstract_line_count = _count_abstract_lines(abstract_text)
         abstract_word_count = _count_title_words(abstract_text)
         if abstract_paragraph.style == ABSTRACT_REQUIRED_PARAGRAPH_STYLE:
             abstract_paragraph_style_ok = True
-
-    blank_line_between_abstract_and_practitioner = False
-    if abstract_paragraph is not None and practitioner_heading is not None:
-        if practitioner_heading.index > abstract_paragraph.index:
-            i = abstract_paragraph.index + 1
-            while i < practitioner_heading.index:
-                if i < len(paragraphs) and paragraphs[i].is_empty is True:
-                    blank_line_between_abstract_and_practitioner = True
-                    break
-                i += 1
-
-    practitioner_notes = []
-    practitioner_non_note_lines_count = 0
-    practitioner_non_note_positions = []
-    practitioner_notes_directly_under_heading = False
-    if practitioner_heading is not None:
-        i = practitioner_heading.index + 1
-        while i < len(paragraphs):
-            p = paragraphs[i]
-            low = p.text.strip().lower()
-            if low == "keywords":
-                break
-            if p.style == "Heading 1" and low == "introduction":
-                break
-
-            if p.is_empty is False:
-                if practitioner_notes_directly_under_heading is False:
-                    if p.style == PRACTITIONER_REQUIRED_NOTE_STYLE:
-                        practitioner_notes_directly_under_heading = True
-
-                if p.style == PRACTITIONER_REQUIRED_NOTE_STYLE:
-                    practitioner_notes.append(p)
-                else:
-                    practitioner_non_note_lines_count += 1
-                    practitioner_non_note_positions.append(p.index)
-            i += 1
-
-    practitioner_notes_too_long_count = 0
-    for p in practitioner_notes:
-        if _count_title_lines(p.text) > PRACTITIONER_MAX_LINES_PER_NOTE:
-            practitioner_notes_too_long_count += 1
 
     abstract_heading_found = abstract_heading is not None
     abstract_heading_style_ok = False
@@ -2599,14 +2524,6 @@ def abstractFound(docxpath):
         abstract_heading_pos = abstract_heading.index
         if abstract_heading.style == ABSTRACT_REQUIRED_HEADING_STYLE:
             abstract_heading_style_ok = True
-
-    practitioner_heading_found = practitioner_heading is not None
-    practitioner_heading_style_ok = False
-    practitioner_heading_pos = 0
-    if practitioner_heading is not None:
-        practitioner_heading_pos = practitioner_heading.index
-        if practitioner_heading.style == PRACTITIONER_REQUIRED_HEADING_STYLE:
-            practitioner_heading_style_ok = True
 
     follows_affiliations = False
     if abstract_heading is not None and affiliations_end_pos is not None:
@@ -2629,18 +2546,8 @@ def abstractFound(docxpath):
         "abstract_body_paragraph_positions": [p.index for p in abstract_body_paragraphs],
         "abstract_merge_positions": abstract_merge_positions,
         "abstract_paragraph_style_ok": abstract_paragraph_style_ok,
-        "abstract_line_count": abstract_line_count,
         "abstract_word_count": abstract_word_count,
         "abstract_text": abstract_text,
-        "practitioner_heading_found": practitioner_heading_found,
-        "practitioner_heading_pos": practitioner_heading_pos,
-        "practitioner_heading_style_ok": practitioner_heading_style_ok,
-        "blank_line_between_abstract_and_practitioner": blank_line_between_abstract_and_practitioner,
-        "practitioner_notes_directly_under_heading": practitioner_notes_directly_under_heading,
-        "practitioner_note_count": len(practitioner_notes),
-        "practitioner_non_note_lines_count": practitioner_non_note_lines_count,
-        "practitioner_non_note_positions": practitioner_non_note_positions,
-        "practitioner_notes_too_long_count": practitioner_notes_too_long_count,
     }
 
 
@@ -2749,9 +2656,6 @@ def abstractFormatCheck(docxpath, abstract_state):
     style_fixes = []
     insert_default_affiliations = False
     default_affiliations_text = ""
-    insert_practitioner_stub = False
-    ensure_practitioner_section = False
-    practitioner_missing_comment = ""
 
     if abstract_state["abstract_found"] is False:
         message = "Missing 'Abstract' heading on the front page after author affiliations."
@@ -2763,26 +2667,6 @@ def abstractFormatCheck(docxpath, abstract_state):
                 insert_default_affiliations = True
                 if auth_end_pos is not None:
                     default_affiliations_insert_pos = auth_end_pos + 1
-        practitioner_insert_after_pos = abstract_state["anchor_pos"]
-        if abstract_state["affiliations_found"] is True:
-            practitioner_insert_after_pos = abstract_state["affiliations_end_pos"]
-        elif insert_default_affiliations is True:
-            practitioner_insert_after_pos = default_affiliations_insert_pos
-        if abstract_state["practitioner_heading_found"] is False:
-            insert_practitioner_stub = True
-            ensure_practitioner_section = True
-            practitioner_missing_comment = (
-                "Practitioner Notes section not found.\n\n"
-                "Tracked change applied: 'Practitioner Notes' heading and one placeholder dot point have been inserted after the front-page author/affiliation block because the Abstract heading is also missing.\n\n"
-                "Please add the Abstract above it, then replace the placeholder with 5 concise practitioner notes (max 2 lines each) using the 'Practitioner Notes' paragraph style."
-            )
-        elif abstract_state["practitioner_note_count"] == 0:
-            ensure_practitioner_section = True
-            practitioner_missing_comment = (
-                "Practitioner Notes heading found but no note dot points are present.\n\n"
-                "Tracked change applied: one placeholder dot point has been inserted under the heading.\n\n"
-                "Please replace the placeholder with 5 concise practitioner notes (max 2 lines each) using the 'Practitioner Notes' paragraph style."
-            )
         return {
             "action": "add_abstract_comment",
             "reason": "Abstract heading not found",
@@ -2791,10 +2675,6 @@ def abstractFormatCheck(docxpath, abstract_state):
             "insert_default_affiliations": insert_default_affiliations,
             "default_affiliations_text": default_affiliations_text,
             "default_affiliations_insert_pos": default_affiliations_insert_pos,
-            "insert_practitioner_stub": insert_practitioner_stub,
-            "ensure_practitioner_section": ensure_practitioner_section,
-            "practitioner_missing_comment": practitioner_missing_comment,
-            "practitioner_insert_after_pos": practitioner_insert_after_pos,
         }
 
     anchor_pos = abstract_state["abstract_heading_pos"]
@@ -2879,91 +2759,20 @@ def abstractFormatCheck(docxpath, abstract_state):
                 + "'."
             )
 
-        # JUTLP rule: the abstract must fit lines 7–23 of the front page
-        # (≈ ABSTRACT_MAX_LINES lines) AND be ≤ ABSTRACT_MAX_WORDS words. This is
-        # a maximum, so only flag when the abstract is too long.
-        line_count = abstract_state["abstract_line_count"]
+        # APA-08: the abstract is at most 250 words. The JUTLP
+        # "fits lines 7-23 of the front page" rule was removed in C-26.
         word_count = abstract_state["abstract_word_count"]
-        if line_count > ABSTRACT_MAX_LINES or word_count > ABSTRACT_MAX_WORDS:
-            length_message = (
-                "Abstract is too long. Current: "
-                + str(word_count) + " word(s), ~" + str(line_count) + " line(s). "
-                + "JUTLP limit: a maximum of " + str(ABSTRACT_MAX_WORDS)
-                + " words, and it must fit within lines "
-                + str(ABSTRACT_REGION_START_LINE) + " to " + str(ABSTRACT_REGION_END_LINE)
-                + " of the front page (about " + str(ABSTRACT_MAX_LINES)
-                + " lines) so all summary content stays before the Introduction. "
-                + "Please shorten the abstract."
+        if word_count > ABSTRACT_MAX_WORDS:
+            length_comment = (
+                "Abstract is too long. Current: " + str(word_count)
+                + " word(s). APA maximum: " + str(ABSTRACT_MAX_WORDS)
+                + " words. Please shorten the abstract."
             )
-            length_comment = length_message
 
         abstract_component_check = _check_abstract_components_with_llm(abstract_state["abstract_text"])
         if abstract_component_check["checked"] is True:
             if abstract_component_check["is_complete"] is False:
                 body_comment_parts.append(_build_missing_abstract_components_message(abstract_component_check))
-
-    if abstract_state["practitioner_heading_found"] is False:
-        insert_practitioner_stub = True
-        ensure_practitioner_section = True
-        practitioner_missing_comment = (
-            "Practitioner Notes section not found.\n\n"
-            "Tracked change applied: 'Practitioner Notes' heading and one placeholder dot point have been inserted under the abstract.\n\n"
-            "Please replace the placeholder with 5 concise practitioner notes (max 2 lines each) using the 'Practitioner Notes' paragraph style."
-        )
-    else:
-        if abstract_state["practitioner_heading_style_ok"] is False:
-            ensure_practitioner_section = True
-            style_fixes.append(
-                {
-                    "paragraph_index": abstract_state["practitioner_heading_pos"],
-                    "new_style": PRACTITIONER_REQUIRED_HEADING_STYLE_ID,
-                }
-            )
-            body_comment_parts.append(
-                "Tracked style change applied: Practitioner Notes heading changed to style '"
-                + PRACTITIONER_REQUIRED_HEADING_STYLE
-                + "'."
-            )
-
-        if abstract_state["blank_line_between_abstract_and_practitioner"] is False:
-            body_comment_parts.append("Keep one blank line between abstract paragraph and Practitioner Notes heading.")
-
-        if abstract_state["practitioner_notes_directly_under_heading"] is False and abstract_state["practitioner_note_count"] > 0:
-            body_comment_parts.append("Practitioner Notes statements should start directly under the heading.")
-
-        if abstract_state["practitioner_note_count"] == 0:
-            ensure_practitioner_section = True
-            practitioner_missing_comment = (
-                "Practitioner Notes heading found but no note dot points are present.\n\n"
-                "Tracked change applied: one placeholder dot point has been inserted under the heading.\n\n"
-                "Please replace the placeholder with 5 concise practitioner notes (max 2 lines each) using the 'Practitioner Notes' paragraph style."
-            )
-        elif abstract_state["practitioner_note_count"] != PRACTITIONER_REQUIRED_NOTE_COUNT:
-            body_comment_parts.append(
-                "Practitioner Notes should contain exactly 5 short statements. Found "
-                + str(abstract_state["practitioner_note_count"])
-                + "."
-            )
-
-        if abstract_state["practitioner_non_note_lines_count"] > 0:
-            for pos in abstract_state.get("practitioner_non_note_positions", []):
-                style_fixes.append(
-                    {
-                        "paragraph_index": pos,
-                        "new_style": PRACTITIONER_REQUIRED_NOTE_STYLE_ID,
-                    }
-                )
-            body_comment_parts.append(
-                "Tracked style change applied: Practitioner Notes statements changed to style '"
-                + PRACTITIONER_REQUIRED_NOTE_STYLE
-                + "'."
-            )
-
-        if abstract_state["practitioner_notes_too_long_count"] > 0:
-            body_comment_parts.append(
-                str(abstract_state["practitioner_notes_too_long_count"])
-                + " Practitioner Notes statement(s) are over two lines; keep each statement to max two lines."
-            )
 
     comments = []
 
@@ -3009,10 +2818,6 @@ def abstractFormatCheck(docxpath, abstract_state):
             "insert_default_affiliations": insert_default_affiliations,
             "default_affiliations_text": default_affiliations_text,
             "default_affiliations_insert_pos": abstract_state["abstract_heading_pos"],
-            "insert_practitioner_stub": insert_practitioner_stub,
-            "ensure_practitioner_section": ensure_practitioner_section,
-            "practitioner_missing_comment": practitioner_missing_comment,
-            "practitioner_insert_after_pos": abstract_state["abstract_paragraph_pos"],
         }
 
     base_action = "add_abstract_comment" if len(comments) == 1 else "add_abstract_comments"
@@ -3030,10 +2835,6 @@ def abstractFormatCheck(docxpath, abstract_state):
         "insert_default_affiliations": insert_default_affiliations,
         "default_affiliations_text": default_affiliations_text,
         "default_affiliations_insert_pos": abstract_state["abstract_heading_pos"],
-        "insert_practitioner_stub": insert_practitioner_stub,
-        "ensure_practitioner_section": ensure_practitioner_section,
-        "practitioner_missing_comment": practitioner_missing_comment,
-        "practitioner_insert_after_pos": abstract_state["abstract_paragraph_pos"],
     }
 
 
@@ -3045,7 +2846,7 @@ def build_abstract_check_plan(docxpath):
 
 ##KEYWORDS SECTION
 #find heading 'Keywords' - deterministic
-#keywords section follows Practitioner Notes section - deterministic
+#keywords section follows the abstract - deterministic
 #Keywords heading must use style: 'Heading Front Page' - deterministic
 #underneath the 'Keywords' heading there is one line of keywords text
 #keywords checks are:
@@ -3271,7 +3072,7 @@ def keywordsFound(docxpath):
     paragraphs = load_paragraphs(docxpath)
     front = get_front_page(paragraphs)
 
-    practitioner_heading = _find_practitioner_heading_in_front(front)
+    abstract_heading = _find_abstract_heading_in_front(front)
     keywords_heading = _find_keywords_heading_in_front(front)
     citation_heading = _find_citation_heading_in_front(front)
     intro_heading = _find_introduction_heading_in_front(front)
@@ -3302,8 +3103,8 @@ def keywordsFound(docxpath):
             anchor_pos = blank_anchor
     elif citation_heading is not None:
         anchor_pos = citation_heading.index
-    elif practitioner_heading is not None:
-        anchor_pos = practitioner_heading.index
+    elif abstract_heading is not None:
+        anchor_pos = abstract_heading.index
     else:
         for p in front:
             if p.is_empty is False:
@@ -3366,10 +3167,10 @@ def keywordsFound(docxpath):
             if _keyword_looks_like_abbreviation(item) is True:
                 abbreviation_items.append(item)
 
-    keywords_follows_practitioner = False
-    if keywords_heading is not None and practitioner_heading is not None:
-        if keywords_heading.index > practitioner_heading.index:
-            keywords_follows_practitioner = True
+    keywords_follows_abstract = False
+    if keywords_heading is not None and abstract_heading is not None:
+        if keywords_heading.index > abstract_heading.index:
+            keywords_follows_abstract = True
 
     keywords_heading_style_ok = False
     keywords_heading_pos = 0
@@ -3380,11 +3181,11 @@ def keywordsFound(docxpath):
 
     return {
         "anchor_pos": anchor_pos,
-        "practitioner_heading_found": practitioner_heading is not None,
+        "abstract_heading_found": abstract_heading is not None,
         "keywords_found": keywords_heading is not None,
         "keywords_heading_pos": keywords_heading_pos,
         "keywords_heading_style_ok": keywords_heading_style_ok,
-        "keywords_follows_practitioner": keywords_follows_practitioner,
+        "keywords_follows_abstract": keywords_follows_abstract,
         "keywords_paragraph_found": keywords_paragraph is not None,
         "keywords_paragraph_pos": keywords_paragraph_pos,
         "keywords_paragraph_count": len(keyword_body_paragraphs),
@@ -3454,7 +3255,7 @@ def keywordsFormatCheck(docxpath, keywords_state):
                 "review and edit to match your paper's contribution."
             )
         else:
-            message = "Tracked change applied: inserted 'Keywords' heading under Practitioner Notes."
+            message = "Tracked change applied: inserted 'Keywords' heading under the abstract."
             message += "\n\nKeywords missing, please add up to 5 keywords pertaining to the manuscript."
             missing_comment = "Keywords missing, please add up to 5 keywords pertaining to the manuscript."
         return {
@@ -3470,9 +3271,9 @@ def keywordsFormatCheck(docxpath, keywords_state):
 
     anchor_pos = keywords_state["keywords_heading_pos"]
 
-    if keywords_state["practitioner_heading_found"] is True:
-        if keywords_state["keywords_follows_practitioner"] is False:
-            comment_parts.append("Keywords section should follow the Practitioner Notes section.")
+    if keywords_state["abstract_heading_found"] is True:
+        if keywords_state["keywords_follows_abstract"] is False:
+            comment_parts.append("Keywords section should follow the abstract.")
 
     if keywords_state["keywords_heading_style_ok"] is False:
         style_fixes.append(
@@ -3853,7 +3654,7 @@ APA_LINE_SPACING_MULTIPLE = 2.0  # python-docx line_spacing value for line=480 a
 # Styles that are never body prose — skip when checking paragraph development.
 _PARA_DEV_SKIP_STYLES = frozenset({
     "Article Title", "Authors", "Author Affiliations",
-    "Heading Front Page", "Front Page Text", "Practitioner Notes",
+    "Heading Front Page", "Front Page Text",
     "Heading 1", "Heading 2", "Heading 3", "Heading 4",
     "Figure Number", "Figure Title",
     "Table Number", "Table Title", "Table Text", "Table Emphasis",
@@ -4399,7 +4200,6 @@ def _collect_dot_point_issues(doc, paragraph_records, body_start_index, body_end
 
     first_anchor = None
     count = 0
-    in_practitioner_notes = False
 
     i = body_start_index
     while i < body_end_index and i < len(paragraph_records) and i < len(doc.paragraphs):
@@ -4412,13 +4212,8 @@ def _collect_dot_point_issues(doc, paragraph_records, body_start_index, body_end
         low = text.strip().lower()
         style = p.style or ""
 
-        if low == "practioner notes" or low == "practitioner notes":
-            in_practitioner_notes = True
-            i += 1
-            continue
         if low == "keywords":
-            in_practitioner_notes = False
-        if in_practitioner_notes is True:
+            # Front-matter boundary: keywords end the first body paragraph.
             i += 1
             continue
 
@@ -4445,16 +4240,14 @@ def _collect_dot_point_issues(doc, paragraph_records, body_start_index, body_end
 
     if count == 1:
         message = (
-            "Dot-point lists are not permitted in academic journal manuscripts outside "
-            "the Practitioner Notes section. Please convert this dot-point list to "
-            "continuous prose."
+            "Dot-point lists are not permitted in academic journal manuscripts. "
+            "Please convert this dot-point list to continuous prose."
         )
     else:
         message = (
             f"Dot-point lists were found in {count} locations in this document. "
-            "Dot-point lists are not permitted in academic journal manuscripts outside "
-            "the Practitioner Notes section. Please convert all dot-point lists to "
-            "continuous prose."
+            "Dot-point lists are not permitted in academic journal manuscripts. "
+            "Please convert all dot-point lists to continuous prose."
         )
 
     return [{"anchor_pos": first_anchor, "message": message}]
@@ -5905,9 +5698,9 @@ def _ensure_normal_style_body_rpr(input_path, output_path):
     The template's Normal style inherits its 11pt size from the *template's*
     docDefaults. When that style is copied into a manuscript whose own
     docDefaults carry no size, the body silently falls back to Word's 10pt
-    default (the reported "Arial size 10" bug). Setting rFonts=Arial and
+    default (the reported "Calibri size 10" bug). Setting rFonts=Calibri and
     sz/szCs=22 (11pt) directly on the Normal style guarantees every paragraph
-    that inherits Normal renders as 11pt Arial regardless of docDefaults.
+    that inherits Normal renders as 11pt Calibri regardless of docDefaults.
     """
     with zipfile.ZipFile(input_path, "r") as z:
         names = z.namelist()
@@ -5986,7 +5779,7 @@ def _apply_normal_style_fix(input_path, output_path):
         ["Normal"],
         replace_existing=True,
     )
-    # Pin Arial 11pt onto the Normal style so body text that inherits Normal is
+    # Pin Calibri 11pt onto the Normal style so body text that inherits Normal is
     # not left at Word's 10pt default after the template style is copied in.
     source = output_path if applied else input_path
     pinned = _ensure_normal_style_body_rpr(source, output_path)
@@ -6481,7 +6274,7 @@ def _insert_raw_body_paragraph(input_path, output_path, target_index, paragraph_
 
 
 def _shift_abstract_plan_positions_after_insert(abstract_plan, insert_at):
-    for key in ("anchor_pos", "practitioner_insert_after_pos"):
+    for key in ("anchor_pos",):
         value = abstract_plan.get(key)
         if isinstance(value, int) and value >= insert_at:
             abstract_plan[key] = value + 1
@@ -7172,8 +6965,6 @@ def _apply_abstract_plan(input_path, output_path, abstract_plan):
         [
             ABSTRACT_REQUIRED_HEADING_STYLE,
             ABSTRACT_REQUIRED_PARAGRAPH_STYLE,
-            PRACTITIONER_REQUIRED_HEADING_STYLE,
-            PRACTITIONER_REQUIRED_NOTE_STYLE,
             AFFILIATIONS_REQUIRED_STYLE,
         ],
     )
@@ -7271,231 +7062,6 @@ def _apply_abstract_plan(input_path, output_path, abstract_plan):
     return applied_any
 
 
-def _apply_missing_practitioner_stub(input_path, output_path, abstract_plan):
-    if abstract_plan.get("ensure_practitioner_section") is not True and abstract_plan.get("insert_practitioner_stub") is not True:
-        return False
-
-    practitioner_comment_message = str(
-        abstract_plan.get("practitioner_missing_comment", "")
-    ).strip()
-
-    current_input_path = input_path
-    styles_loaded = _ensure_template_styles_available(
-        current_input_path,
-        output_path,
-        [
-            ABSTRACT_REQUIRED_PARAGRAPH_STYLE,
-            PRACTITIONER_REQUIRED_HEADING_STYLE,
-            PRACTITIONER_REQUIRED_NOTE_STYLE,
-        ],
-    )
-    if styles_loaded is True:
-        current_input_path = output_path
-
-    heading_style_id = _resolve_style_id_from_doc(
-        current_input_path,
-        PRACTITIONER_REQUIRED_HEADING_STYLE,
-        PRACTITIONER_REQUIRED_HEADING_STYLE_ID,
-    )
-    note_style_id = _resolve_style_id_from_doc(
-        current_input_path,
-        PRACTITIONER_REQUIRED_NOTE_STYLE,
-        PRACTITIONER_REQUIRED_NOTE_STYLE_ID,
-    )
-    def _raw_style_id(para_element):
-        pPr = para_element.find(f"{WQ}pPr")
-        if pPr is None:
-            return ""
-        pStyle = pPr.find(f"{WQ}pStyle")
-        if pStyle is None:
-            return ""
-        return pStyle.get(f"{WQ}val", "")
-
-    def _raw_text(para_element):
-        return "".join(t.text or "" for t in para_element.iter(f"{WQ}t"))
-
-    def _is_practitioner_heading_text(text):
-        low = text.strip().lower()
-        if low == "practioner notes" or low == "practitioner notes":
-            return True
-        return False
-
-    def _is_practitioner_section_end(text):
-        low = text.strip().lower()
-        if low == "":
-            return False
-        if low == "keywords" or low.startswith("keywords:"):
-            return True
-        if low == "citation" or low.startswith("citation:"):
-            return True
-        if low == "introduction":
-            return True
-        return False
-
-    def _has_visible_text(text):
-        cleaned = text
-        cleaned = cleaned.replace("\u200b", "")
-        cleaned = cleaned.replace("\ufeff", "")
-        cleaned = cleaned.replace("\u2060", "")
-        if cleaned.strip() == "":
-            return False
-        return True
-
-    def _is_abstract_heading_candidate(paragraph):
-        low = paragraph.text.strip().lower()
-        if low == "abstract":
-            return True
-        if paragraph.style == ABSTRACT_REQUIRED_HEADING_STYLE and "abstract" in low:
-            return True
-        return False
-
-    insert_after_pos = abstract_plan.get("practitioner_insert_after_pos", -1)
-    if insert_after_pos is None:
-        insert_after_pos = -1
-    if insert_after_pos < 0:
-        insert_after_pos = abstract_plan.get("anchor_pos", 0)
-
-    # Recompute from the current (post-edit) document to avoid stale indexes
-    # from earlier planning stages after title/author/abstract rewrites.
-    current_paragraphs = load_paragraphs(current_input_path)
-    current_front = get_front_page(current_paragraphs)
-
-    current_abstract_heading = None
-    for paragraph in current_front:
-        if _is_abstract_heading_candidate(paragraph) is True:
-            current_abstract_heading = paragraph
-            break
-
-    if current_abstract_heading is not None:
-        current_abstract_paragraph_pos = None
-        for paragraph in current_front:
-            if paragraph.index <= current_abstract_heading.index:
-                continue
-            if (
-                paragraph.style == ABSTRACT_REQUIRED_HEADING_STYLE
-                and _is_abstract_heading_candidate(paragraph) is False
-                and _has_visible_text(paragraph.text) is True
-            ):
-                break
-            if _is_abstract_body_end_marker(paragraph) is True:
-                break
-            if _has_visible_text(paragraph.text) is True:
-                current_abstract_paragraph_pos = paragraph.index
-                break
-
-        if current_abstract_paragraph_pos is not None:
-            insert_after_pos = current_abstract_paragraph_pos
-        else:
-            insert_after_pos = current_abstract_heading.index
-    else:
-        current_abstract_state = abstractFound(current_input_path)
-        if current_abstract_state.get("affiliations_found") is True:
-            insert_after_pos = current_abstract_state.get("affiliations_end_pos", insert_after_pos)
-
-    doc_root, body_paras = _load_body_paras_raw(current_input_path)
-    body = doc_root.find(f"{WQ}body")
-    if body is None:
-        return False
-
-    heading_index = -1
-    for i, para_element in enumerate(body_paras):
-        if _is_practitioner_heading_text(_raw_text(para_element)):
-            heading_index = i
-            break
-
-    changed = False
-
-    if heading_index >= 0:
-        heading_element = body_paras[heading_index]
-        current_style = _raw_style_id(heading_element)
-        if current_style != heading_style_id:
-            _apply_tracked_style_change(
-                heading_element,
-                heading_style_id,
-                current_style,
-                7300,
-            )
-            changed = True
-
-        has_note = False
-        i = heading_index + 1
-        while i < len(body_paras):
-            text = _raw_text(body_paras[i])
-            if _is_practitioner_section_end(text):
-                break
-            if _raw_style_id(body_paras[i]) == note_style_id:
-                has_note = True
-                break
-            i += 1
-
-        if has_note is False:
-            note_para = _make_inserted_styled_paragraph(" ", note_style_id, 7302)
-            if heading_index + 1 < len(body_paras):
-                body_paras[heading_index + 1].addprevious(note_para)
-            else:
-                sect_pr = body.find(f"{WQ}sectPr")
-                if sect_pr is not None:
-                    sect_pr.addprevious(note_para)
-                else:
-                    body.append(note_para)
-            changed = True
-
-        if changed is False and practitioner_comment_message == "":
-            return False
-
-        if changed is True:
-            new_doc_xml = etree.tostring(doc_root, xml_declaration=True, encoding="UTF-8", standalone=True)
-            _save_doc_xml_to_zip(current_input_path, output_path, new_doc_xml)
-
-        if practitioner_comment_message != "":
-            comment_input_path = current_input_path
-            if changed is True:
-                comment_input_path = output_path
-            _write_single_comment_docx(
-                input_path=comment_input_path,
-                output_path=output_path,
-                paragraph_index=heading_index,
-                message=practitioner_comment_message,
-            )
-        return True
-
-    insert_at = insert_after_pos + 1
-    if insert_at < 0:
-        insert_at = 0
-
-    heading_para = _make_inserted_styled_paragraph(
-        "Practitioner Notes",
-        heading_style_id,
-        7302,
-        PRACTITIONER_INSERTED_HEADING_SIZE_HALF_POINTS,
-    )
-    note_para = _make_inserted_styled_paragraph(" ", note_style_id, 7304)
-
-    if insert_at < len(body_paras):
-        anchor = body_paras[insert_at]
-        anchor.addprevious(heading_para)
-        anchor.addprevious(note_para)
-    else:
-        sect_pr = body.find(f"{WQ}sectPr")
-        if sect_pr is not None:
-            sect_pr.addprevious(heading_para)
-            sect_pr.addprevious(note_para)
-        else:
-            body.append(heading_para)
-            body.append(note_para)
-
-    new_doc_xml = etree.tostring(doc_root, xml_declaration=True, encoding="UTF-8", standalone=True)
-    _save_doc_xml_to_zip(current_input_path, output_path, new_doc_xml)
-
-    if practitioner_comment_message != "":
-        _write_single_comment_docx(
-            input_path=output_path,
-            output_path=output_path,
-            paragraph_index=insert_at,
-            message=practitioner_comment_message,
-        )
-    return True
-
 
 def _apply_missing_keywords_stub(input_path, output_path, keywords_plan):
     if keywords_plan.get("ensure_keywords_section") is not True:
@@ -7519,11 +7085,6 @@ def _apply_missing_keywords_stub(input_path, output_path, keywords_plan):
         current_input_path,
         KEYWORDS_REQUIRED_HEADING_STYLE,
         KEYWORDS_REQUIRED_HEADING_STYLE_ID,
-    )
-    note_style_id = _resolve_style_id_from_doc(
-        current_input_path,
-        PRACTITIONER_REQUIRED_NOTE_STYLE,
-        PRACTITIONER_REQUIRED_NOTE_STYLE_ID,
     )
     text_style_id = _resolve_style_id_from_doc(
         current_input_path,
@@ -7556,13 +7117,11 @@ def _apply_missing_keywords_stub(input_path, output_path, keywords_plan):
             return True
         return False
 
-    def _is_practitioner_heading_text(text):
+    def _is_abstract_heading_text(text):
         low = text.strip().lower()
-        if low == "practioner notes" or low == "practitioner notes":
-            return True
-        return False
+        return low == "abstract" or low.startswith("abstract:")
 
-    def _is_practitioner_section_end(text):
+    def _is_abstract_section_end(text):
         low = text.strip().lower()
         if low == "":
             return False
@@ -7578,22 +7137,23 @@ def _apply_missing_keywords_stub(input_path, output_path, keywords_plan):
         if _is_keywords_heading_text(_raw_text(para_element)) is True:
             return False
 
-    practitioner_heading_index = -1
+    # APA: keywords follow the abstract, with a blank line between them.
+    abstract_heading_index = -1
     for i, para_element in enumerate(body_paras):
-        if _is_practitioner_heading_text(_raw_text(para_element)) is True:
-            practitioner_heading_index = i
+        if _is_abstract_heading_text(_raw_text(para_element)) is True:
+            abstract_heading_index = i
             break
 
     insert_at = 0
     remove_positions = []
-    if practitioner_heading_index >= 0:
-        insert_after = practitioner_heading_index
-        i = practitioner_heading_index + 1
+    if abstract_heading_index >= 0:
+        insert_after = abstract_heading_index
+        i = abstract_heading_index + 1
         while i < len(body_paras):
             text = _raw_text(body_paras[i])
-            if _is_practitioner_section_end(text) is True:
+            if _is_abstract_section_end(text) is True:
                 break
-            if _raw_style_id(body_paras[i]) == note_style_id:
+            if _raw_style_id(body_paras[i]) == text_style_id:
                 insert_after = i
             elif text.strip() == "":
                 remove_positions.append(i)
@@ -7632,7 +7192,7 @@ def _apply_missing_keywords_stub(input_path, output_path, keywords_plan):
         "Keywords",
         heading_style_id,
         7400,
-        PRACTITIONER_INSERTED_HEADING_SIZE_HALF_POINTS,
+        ABSTRACT_INSERTED_HEADING_SIZE_HALF_POINTS,
     )
 
     body_para = None
@@ -9140,8 +8700,6 @@ _NON_BODY_STYLES = frozenset({
     TITLE_REQUIRED_STYLE_ID, AUTHORS_REQUIRED_STYLE_ID, AFFILIATIONS_REQUIRED_STYLE_ID,
     ABSTRACT_REQUIRED_HEADING_STYLE, ABSTRACT_REQUIRED_PARAGRAPH_STYLE,
     ABSTRACT_REQUIRED_HEADING_STYLE_ID, ABSTRACT_REQUIRED_PARAGRAPH_STYLE_ID,
-    PRACTITIONER_REQUIRED_HEADING_STYLE, PRACTITIONER_REQUIRED_NOTE_STYLE,
-    PRACTITIONER_REQUIRED_HEADING_STYLE_ID, PRACTITIONER_REQUIRED_NOTE_STYLE_ID,
     KEYWORDS_REQUIRED_HEADING_STYLE, KEYWORDS_REQUIRED_TEXT_STYLE,
     KEYWORDS_REQUIRED_HEADING_STYLE_ID, KEYWORDS_REQUIRED_TEXT_STYLE_ID,
     CITATION_REQUIRED_HEADING_STYLE, CITATION_REQUIRED_TEXT_STYLE,
@@ -10297,13 +9855,6 @@ def build_edited_document(input_path, output_path=None, mode=None):
         current_input_path = output_path
         applied_any = True
 
-    practitioner_stub_applied = _apply_missing_practitioner_stub(
-        current_input_path, output_path, abstract_plan
-    )
-    if practitioner_stub_applied is True:
-        current_input_path = output_path
-        applied_any = True
-
     keywords_stub_applied = _apply_missing_keywords_stub(
         current_input_path, output_path, keywords_plan
     )
@@ -10321,6 +9872,26 @@ def build_edited_document(input_path, output_path=None, mode=None):
         output_path,
     )
     if bold_italic_removed is True:
+        current_input_path = output_path
+        applied_any = True
+
+    # C-25 / APA-12: References block — new page, bold centred heading. Must
+    # run after _apply_apa_heading_styles and apply_heading_corrections (so
+    # Heading 1 exists and the heading text is canonical) and after the
+    # bold/italic strip above (which skips the References heading anyway).
+    _, references_block_actions = apply_references_block_corrections(
+        current_input_path, output_path, 6100
+    )
+    if references_block_actions:
+        current_input_path = output_path
+        applied_any = True
+
+    # C-26 / APA-08 + APA-09: abstract heading/body and keywords block.
+    # Runs before the font sweep below so any run it creates is normalised too.
+    _, abstract_keywords_actions = apply_abstract_keywords_formatting(
+        current_input_path, output_path, 6200
+    )
+    if abstract_keywords_actions:
         current_input_path = output_path
         applied_any = True
 
@@ -10390,6 +9961,8 @@ def build_edited_document(input_path, output_path=None, mode=None):
         "editorial_review_plan": editorial_review_plan,
         "apa_title_page_plan": apa_title_page_plan,
         "intro_page_break_applied": intro_page_break_applied,
+    "references_block_actions": references_block_actions,
+    "abstract_keywords_actions": abstract_keywords_actions,
         "heading_1_text_normalization_applied": heading_1_text_normalization_applied,
         "normal_style_applied": normal_style_applied,
         "heading_styles_applied": heading_styles_applied,
@@ -10406,7 +9979,6 @@ def build_edited_document(input_path, output_path=None, mode=None):
         "body_edit_applied": body_edit_applied,
         "narrative_citation_applied": narrative_citation_applied,
         "editorial_review_applied": editorial_review_applied,
-        "practitioner_stub_applied": practitioner_stub_applied,
         "keywords_stub_applied": keywords_stub_applied,
         "apa_title_page_applied": apa_title_page_applied,
         "applied": applied_any,
