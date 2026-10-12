@@ -64,7 +64,7 @@ def test_normal_style_pinned_to_arial_11pt(tmp_path):
     rpr = _normal_rpr(str(out))
     assert rpr is not None
     rfonts = rpr.find(f"{WQ}rFonts")
-    assert rfonts.get(f"{WQ}ascii") == BODY_REQUIRED_FONT_NAME == "Arial"
+    assert rfonts.get(f"{WQ}ascii") == BODY_REQUIRED_FONT_NAME
     assert rpr.find(f"{WQ}sz").get(f"{WQ}val") == BODY_REQUIRED_FONT_SIZE_XML == "22"
     assert rpr.find(f"{WQ}szCs").get(f"{WQ}val") == "22"
 

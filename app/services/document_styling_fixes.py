@@ -3,7 +3,7 @@ import sys
 
 from docx import Document
 
-from app.domain.canonical_jultp_template import (
+from app.domain.apa7_template import (
     CANONICAL_STRUCTURE,
     strip_leading_section_number,
 )

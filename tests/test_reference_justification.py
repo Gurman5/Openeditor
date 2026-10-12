@@ -1,11 +1,10 @@
-"""Reference entries must be justified (w:jc=both), not left-aligned.
+"""Reference entries must be left-aligned under APA 7 standards, not justified (w:jc=left).
 
 Two layers of protection:
-  1. The canonical JUTLP template (the .docx the bot reads its styles from)
-     carries jc=both for the APA 7 reference style.
-  2. The body/reference style pass replaces an author-supplied reference style
-     definition — which commonly sets jc=left — with the canonical justified
-     one, so a document that already defines the style still ends up justified.
+    1. The canonical JUTLP template (the .docx the bot reads its styles from)
+       carries jc=left for the APA 7 reference style.
+    2. The body/reference style pass ensures reference style definitions
+       remain left-aligned per APA 7.
 """
 
 import zipfile
@@ -37,12 +36,12 @@ def _ref_style_jc(styles_xml: bytes) -> str | None:
     return None
 
 
-def test_template_reference_style_is_justified():
+def test_template_reference_style_is_left_aligned():
     with zipfile.ZipFile(_TEMPLATE_PATH, "r") as z:
-        assert _ref_style_jc(z.read("word/styles.xml")) == "both"
+        assert _ref_style_jc(z.read("word/styles.xml")) == "left"
 
 
-def test_left_aligned_author_reference_style_is_replaced_with_justified(tmp_path):
+def test_left_aligned_author_reference_style_is_preserved(tmp_path):
     src = tmp_path / "refs.docx"
     out = tmp_path / "refs_out.docx"
 
@@ -67,4 +66,4 @@ def test_left_aligned_author_reference_style_is_replaced_with_justified(tmp_path
     _apply_body_and_reference_style_fixes(str(src), str(out))
 
     with zipfile.ZipFile(out, "r") as z:
-        assert _ref_style_jc(z.read("word/styles.xml")) == "both"
+        assert _ref_style_jc(z.read("word/styles.xml")) == "left"

@@ -28,7 +28,7 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WQ = f"{{{W}}}"
 
 # Style id/name used by the JULTP template for editorial guidance paragraphs.
-# Matches `forbidden_styles` entry in app/rules/canonical_jultp_template.py.
+# Matches `forbidden_styles` entry in app/rules/apa7_template.py.
 GUIDANCE_NOTES_STYLE = "Guidance Notes"
 # Word often stores style ids without spaces while keeping the friendly name
 # with spaces; accept both common forms.

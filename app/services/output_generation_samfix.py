@@ -12,7 +12,7 @@ from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from lxml import etree
 
-from app.domain.canonical_jultp_template import (
+from app.domain.apa7_template import (
     CANONICAL_STRUCTURE,
     SECTION_RENAME_MAP,
     strip_leading_section_number,
@@ -30,6 +30,7 @@ from app.services.output_filename import build_output_filename_from_author_line
 from app.services.quotation_utils import find_quote_spans
 from app.services.run_font_corrections import apply_run_font_corrections
 from app.services.timestamps import now_sydney_iso
+from app.services import config as _APA7_CONFIG
 
 
 def normalize_marker(marker: str) -> str:
@@ -288,7 +289,7 @@ CITATION_FORMAT_SCHEMA = {
 #and then check it's in title case. if not, change the title into title case and insert in into the document as a tracked change, replacing the original title.
 #then, check if the title is over two lines long, and check if its over 15 words long. If it is, get the LLM to write a comment in effect saying the title can be  No More Than Two Lines and/or Typically 15 Words in Total (depending on which error is flagged - and then have a short suggestions section suggesting some fixes)
 
-_TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "domain", "JUTLP Template 2026.docx")
+_TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "domain", "APA7 Base Template.docx")
 _TEMPLATE_STYLE_NAMES = None
 _TEMPLATE_STYLE_ID_MAP = None
 _TEMPLATE_STYLE_XML_MAP = None
@@ -368,9 +369,6 @@ AUTHORS_REQUIRED_STYLE = _resolve_style_name("Authors")
 AFFILIATIONS_REQUIRED_STYLE = _resolve_style_name("Author Affiliations")
 REFERENCE_ENTRY_REQUIRED_STYLE = _resolve_style_name("APA 7 Reference List Entry")
 TITLE_REQUIRED_STYLE_ID = _resolve_style_id(TITLE_REQUIRED_STYLE)
-TITLE_LEFT_ALIGNED_STYLE_IDS = frozenset({
-    "Article Title", "ArticleTitle", TITLE_REQUIRED_STYLE, TITLE_REQUIRED_STYLE_ID,
-})
 AUTHORS_REQUIRED_STYLE_ID = _resolve_style_id(AUTHORS_REQUIRED_STYLE)
 AFFILIATIONS_REQUIRED_STYLE_ID = _resolve_style_id(AFFILIATIONS_REQUIRED_STYLE)
 DEFAULT_AUTHORS_LINE = "First Author^a, Second Author^a, and Third Author^b"
@@ -379,6 +377,13 @@ REFERENCE_ENTRY_REQUIRED_STYLE_ID = _resolve_style_id(REFERENCE_ENTRY_REQUIRED_S
 HEADING_1_STYLE_ID = _resolve_style_id("Heading 1")
 HEADING_2_STYLE_ID = _resolve_style_id("Heading 2")
 HEADING_3_STYLE_ID = _resolve_style_id("Heading 3")
+HEADING_4_STYLE_ID = _resolve_style_id("Heading 4")
+HEADING_5_STYLE_ID = _resolve_style_id("Heading 5")
+#> C-23 / APA-11: the five APA heading levels, in template style-name form so
+#> they can be copied straight out of the APA base .docx into an output doc.
+APA_HEADING_STYLE_NAMES = [
+    "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading 5",
+]
 TABLE_NUMBER_STYLE_ID = _resolve_style_id("Table Number")
 TABLE_TITLE_STYLE_ID = _resolve_style_id("Table Title")
 TABLE_GRID_STYLE_ID = _resolve_style_id("Table Grid")
@@ -406,11 +411,16 @@ FIGURE_NUMBER_STYLE = _resolve_style_name("Figure Number", ["Figure/Table Number
 FIGURE_TITLE_STYLE = _resolve_style_name("Figure Title", ["Figure/Table Title"])
 FIGURE_NUMBER_STYLE_ID = _resolve_style_id(FIGURE_NUMBER_STYLE)
 FIGURE_TITLE_STYLE_ID = _resolve_style_id(FIGURE_TITLE_STYLE)
-HEADING_KEEP_NEXT_STYLE_IDS = frozenset({
-    "Heading 1", "Heading 2", "Heading 3",
-    "Heading1", "Heading2", "Heading3",
+APA_HEADING_STYLE_IDS = frozenset({
+    "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading 5",
+    "Heading1", "Heading2", "Heading3", "Heading4", "Heading5",
     HEADING_1_STYLE_ID, HEADING_2_STYLE_ID, HEADING_3_STYLE_ID,
+    HEADING_4_STYLE_ID, HEADING_5_STYLE_ID,
 })
+#> C-23: keepNext is an APA-11 requirement (heading must not be orphaned from
+#> its first body paragraph), so the keepNext pass covers exactly the same
+#> five heading levels the style pass governs.
+HEADING_KEEP_NEXT_STYLE_IDS = APA_HEADING_STYLE_IDS
 TITLE_MAX_LINES = 2
 TITLE_MAX_WORDS = 15
 
@@ -1146,6 +1156,44 @@ def _looks_like_author_list_text(text):
         if part.strip() != ""
     ]
     return len(candidates) >= 2 and all(_looks_like_author_name_text(part) for part in candidates[:3])
+
+
+def _looks_like_course_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    if re.match(r"^course\s*:", clean, flags=re.IGNORECASE):
+        return True
+    return re.match(r"^[A-Z]{2,8}\s*-?\s*\d{2,4}\b", clean) is not None
+
+
+def _looks_like_instructor_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    if re.match(r"^instructor\s*:", clean, flags=re.IGNORECASE):
+        return True
+    return _has_known_title(clean) and _looks_like_author_name_text(clean)
+
+
+def _looks_like_due_date_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    month = (
+        r"(?:January|February|March|April|May|June|July|August|September|October|"
+        r"November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)"
+    )
+    return (
+        re.search(rf"\b{month}\s+\d{{1,2}}(?:,\s*|\s+)\d{{4}}\b", clean, re.IGNORECASE)
+        is not None
+        or re.search(rf"\b\d{{1,2}}\s+{month}\s+\d{{4}}\b", clean, re.IGNORECASE)
+        is not None
+        or re.search(r"\b\d{4}-\d{1,2}-\d{1,2}\b", clean) is not None
+        or re.match(r"^due\s*(date)?\s*:", clean, flags=re.IGNORECASE) is not None
+    )
+
+
+def _looks_like_author_note_line(text):
+    clean = re.sub(r"\s+", " ", (text or "")).strip()
+    return (
+        re.match(r"^author\s+note\s*:?", clean, flags=re.IGNORECASE) is not None
+        or re.search(r"\b(?:ORCID|correspondence)\b", clean, flags=re.IGNORECASE) is not None
+    )
 
 
 #fallback content-based authors detection when style is missing
@@ -3789,13 +3837,18 @@ def build_citation_check_plan(docxpath):
 
 
 #document body constants -------------------------------------------------------------------------------
-BODY_REQUIRED_FONT_NAME = "Arial"
+BODY_REQUIRED_FONT_NAME = _APA7_CONFIG.DEFAULT_FONT
 BODY_REQUIRED_FONT_SIZE_PT = 11.0
 BODY_REQUIRED_FONT_SIZE_XML = "22"
-BODY_REQUIRED_LINE_SPACING = 1.15
-BODY_REQUIRED_LINE_SPACING_XML = "276"
-BODY_REQUIRED_SPACE_AFTER_XML = "120"
 BODY_REQUIRED_STYLE = "Normal"
+
+# APA 7 body geometry (C-22a / C-22b). Single source of truth is
+# app.services.config; these aliases keep the XML passes readable.
+APA_MARGIN_TWIPS = _APA7_CONFIG.APA_MARGIN_TWIPS                    # 1440 = 1in (APA-00)
+APA_SPACE_AFTER_TWIPS = _APA7_CONFIG.APA_SPACE_AFTER_TWIPS          # 0 (APA-01)
+APA_DOUBLE_SPACING_TWIPS = _APA7_CONFIG.DOUBLE_SPACING_TWIPS        # 480 = double (APA-01)
+APA_FIRST_LINE_INDENT_TWIPS = _APA7_CONFIG.APA_FIRST_LINE_INDENT_TWIPS  # 720 = 0.5in (APA-04)
+APA_LINE_SPACING_MULTIPLE = 2.0  # python-docx line_spacing value for line=480 auto (APA-01)
 
 # Styles that are never body prose — skip when checking paragraph development.
 _PARA_DEV_SKIP_STYLES = frozenset({
@@ -3826,7 +3879,7 @@ DISCUSSION_REQUIRED_SUBHEADINGS = [
 
 # Synonym map: each required canonical subheading maps to a list of
 # equivalent heading texts authors commonly use. Single source of truth
-# lives in ``canonical_jultp_template.CANONICAL_STRUCTURE['subsection_aliases']``
+# lives in ``apa7_template.CANONICAL_STRUCTURE['subsection_aliases']``
 # so the validator (per-rule pass/fail) and this module (consolidated
 # missing-subsection comment) stay aligned. The alias here is just a
 # local reference for backwards compatibility with code that imported the
@@ -3858,26 +3911,6 @@ def _all_alias_norms(canonical_label):
     for alias in _SUBSECTION_ALIASES.get(canonical_label, []):
         aliases.add(_normalise_heading_for_match(alias))
     return aliases
-
-CENTER_ALIGNED_HEADING_TEXTS = [
-    "introduction",
-    "literature",
-    "literature review",
-    "method",
-    "methods",
-    "results",
-    "discussion",
-    "conclusion",
-    "conclusions",
-    "acknowledgements",
-    "acknowledgments",
-]
-
-LEFT_ALIGNED_HEADING_TEXTS = [
-    "practioner notes",
-    "practitioner notes",
-    "keywords",
-]
 
 INLINE_QUOTE_MAX_WORDS = 40
 DOT_POINT_PATTERN = re.compile(r"^\s*(?:•|◦|○|●|▪|▫|·|\*|-)\s+\S")
@@ -4001,8 +4034,8 @@ def _is_missing_required_subheading_issue(issue):
 def _body_alignment_ok(doc_paragraph):
     alignment = doc_paragraph.alignment
     if alignment is None:
-        return True  # inherits from Normal style (expected to be justified)
-    if alignment == WD_ALIGN_PARAGRAPH.JUSTIFY:
+        return True  # inherits from Normal style (left, APA-03)
+    if alignment == WD_ALIGN_PARAGRAPH.LEFT:
         return True
     return False
 
@@ -4015,7 +4048,7 @@ def _body_line_spacing_ok(doc_paragraph):
 
     if isinstance(spacing, float) or isinstance(spacing, int):
         value = float(spacing)
-        if abs(value - BODY_REQUIRED_LINE_SPACING) <= 0.05:
+        if abs(value - APA_LINE_SPACING_MULTIPLE) <= 0.05:
             return True
         return False
 
@@ -4026,7 +4059,7 @@ def _body_spacing_ok(doc_paragraph):
     before = doc_paragraph.paragraph_format.space_before
     after = doc_paragraph.paragraph_format.space_after
     before_ok = before is None or abs(float(before.pt)) <= 0.1
-    after_ok = after is None or abs(float(after.pt) - 6.0) <= 0.1
+    after_ok = after is None or abs(float(after.pt)) <= 0.1
     return before_ok and after_ok
 
 
@@ -4049,11 +4082,22 @@ def _is_zero_indent_length(length_value):
 #indent check for body text paragraphs
 def _body_indent_ok(doc_paragraph):
     left_indent_ok = _is_zero_indent_length(doc_paragraph.paragraph_format.left_indent)
-    first_line_indent_ok = _is_zero_indent_length(doc_paragraph.paragraph_format.first_line_indent)
+
+    # APA-04: 0.5in (720 twips = 36pt) first-line indent. No direct formatting
+    # means the paragraph inherits the APA Normal style, which already carries
+    # firstLine=720, so only an explicit non-conforming indent needs a fix.
+    first_line = doc_paragraph.paragraph_format.first_line_indent
+    if first_line is None:
+        first_line_ok = True
+    else:
+        try:
+            first_line_ok = abs(float(first_line.pt) - 36.0) <= 0.5
+        except Exception:
+            first_line_ok = False
 
     if left_indent_ok is False:
         return False
-    if first_line_indent_ok is False:
+    if first_line_ok is False:
         return False
     return True
 
@@ -5685,52 +5729,8 @@ def build_front_page_asset_check_plan(docxpath):
 
 
 def _apply_front_page_asset_plan(input_path, output_path, plan):
-    if plan.get("action") != "add_front_page_asset_comments":
-        return False
-    comment_items = plan.get("comments", [])
-    if not comment_items:
-        return False
-
-    current_input = input_path
-    applied_any = False
-
-    for item in comment_items:
-        message = (item.get("message") or "").strip()
-        if message == "":
-            continue
-
-        if message == FRONT_PAGE_BANNER_COMMENT:
-            inserted = _insert_front_page_banner_from_template(
-                current_input,
-                output_path,
-                item.get("anchor_pos", 0),
-            )
-            if inserted is True:
-                current_input = output_path
-                applied_any = True
-                continue
-
-        if message == FRONT_PAGE_TEXT_BOX_COMMENT:
-            inserted = _insert_front_page_text_box_from_template(
-                current_input,
-                output_path,
-                item.get("anchor_pos", 0),
-            )
-            if inserted is True:
-                current_input = output_path
-                applied_any = True
-                continue
-
-        _write_single_comment_docx(
-            input_path=current_input,
-            output_path=output_path,
-            paragraph_index=item.get("anchor_pos", 0),
-            message=message,
-        )
-        current_input = output_path
-        applied_any = True
-
-    return applied_any
+    # > C-24a: APA title-page normalization supersedes the JUTLP asset plan.
+    return False
 
 
 
@@ -6079,8 +6079,9 @@ def _apply_title_text_tracked_changes(para_el, old_text, new_text):
 # body formatting it carried, otherwise the heading renders at body size.
 _HEADING_STYLE_IDS_FOR_RESTYLE = frozenset({
     HEADING_1_STYLE_ID, HEADING_2_STYLE_ID, HEADING_3_STYLE_ID,
-    "Heading1", "Heading2", "Heading3",
-    "Heading 1", "Heading 2", "Heading 3",
+    HEADING_4_STYLE_ID, HEADING_5_STYLE_ID,
+    "Heading1", "Heading2", "Heading3", "Heading4", "Heading5",
+    "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading 5",
 })
 
 
@@ -8167,6 +8168,213 @@ def _find_or_make_child(parent_element, child_tag):
     return child
 
 
+# APA-00 / APA-05 helpers (C-22a / C-22b) ---------------------------------------
+
+# sectPr children that must follow pgMar, so a missing pgMar lands in schema order.
+_SECTPR_AFTER_PGMAR = (
+    f"{WQ}pgBorders",
+    f"{WQ}lnNumType",
+    f"{WQ}pgNumType",
+    f"{WQ}cols",
+    f"{WQ}formProt",
+    f"{WQ}vAlign",
+    f"{WQ}noEndnote",
+    f"{WQ}titlePg",
+    f"{WQ}textDirection",
+    f"{WQ}bidi",
+    f"{WQ}rtlGutter",
+    f"{WQ}docGrid",
+    f"{WQ}printerSettings",
+    f"{WQ}sectPrChange",
+)
+
+
+def _find_or_make_pg_mar(sect_pr):
+    pg_mar = sect_pr.find(f"{WQ}pgMar")
+    if pg_mar is not None:
+        return pg_mar
+    pg_mar = etree.Element(f"{WQ}pgMar")
+    for tag in _SECTPR_AFTER_PGMAR:
+        existing = sect_pr.find(tag)
+        if existing is not None:
+            existing.addprevious(pg_mar)
+            return pg_mar
+    sect_pr.append(pg_mar)
+    return pg_mar
+
+
+def _apply_apa_section_margins(sect_pr, change_id):
+    """APA-00: force 1in margins on all four sides, as a tracked sectPrChange."""
+    pg_mar = sect_pr.find(f"{WQ}pgMar")
+    needs_change = pg_mar is None
+    if pg_mar is not None:
+        for side in ("top", "right", "bottom", "left"):
+            if pg_mar.get(f"{WQ}{side}") != APA_MARGIN_TWIPS:
+                needs_change = True
+                break
+    if needs_change is False:
+        return False
+
+    # snapshot the pre-change state before mutating, so the tracked change
+    # records the margins the author actually had.
+    old_sect_pr = _copy_properties_without_change(
+        sect_pr, f"{WQ}sectPr", f"{WQ}sectPrChange"
+    )
+
+    pg_mar = _find_or_make_pg_mar(sect_pr)
+    for side in ("top", "right", "bottom", "left"):
+        pg_mar.set(f"{WQ}{side}", APA_MARGIN_TWIPS)
+
+    _remove_tracked_property_change(sect_pr, f"{WQ}sectPrChange")
+    sect_pr_change = etree.SubElement(sect_pr, f"{WQ}sectPrChange")
+    _set_tracked_change_details(sect_pr_change, change_id)
+    sect_pr_change.append(old_sect_pr)
+    return True
+
+
+def _find_header_reference(sect_pr, ref_type):
+    for header_ref in sect_pr.findall(f"{WQ}headerReference"):
+        if header_ref.get(f"{WQ}type", "") == ref_type:
+            return header_ref
+    return None
+
+
+def _ensure_header_reference(sect_pr, rels_root, names, ref_type):
+    """Return ``(part_name, created)`` for a header of the given reference type."""
+    header_ref = _find_header_reference(sect_pr, ref_type)
+    if header_ref is not None:
+        target = _find_relationship_target(rels_root, header_ref.get(f"{RQ}id", ""))
+        if target != "":
+            return _normalise_docx_target(target), False
+
+    header_name = _next_header_name(names)
+    rel_id = _next_relationship_id(rels_root)
+
+    new_rel = etree.SubElement(rels_root, f"{PACKAGE_REL_Q}Relationship")
+    new_rel.set("Id", rel_id)
+    new_rel.set("Type", HEADER_REL_TYPE)
+    new_rel.set("Target", header_name.replace("word/", ""))
+
+    new_ref = etree.Element(f"{WQ}headerReference")
+    new_ref.set(f"{WQ}type", ref_type)
+    new_ref.set(f"{RQ}id", rel_id)
+    sect_pr.insert(0, new_ref)
+    return header_name, True
+
+
+def _make_page_number_header(header_xml):
+    """Return header XML carrying a right-aligned PAGE field (APA-05).
+
+    Existing header content is preserved; the PAGE paragraph is only appended
+    when the header does not already contain a PAGE field.
+    """
+    if header_xml is None:
+        hdr_root = etree.Element(f"{WQ}hdr", nsmap={"w": W})
+    else:
+        hdr_root = etree.fromstring(header_xml)
+
+    for field in hdr_root.iter(f"{WQ}fldSimple"):
+        if "PAGE" in field.get(f"{WQ}instr", ""):
+            return etree.tostring(
+                hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True
+            )
+
+    paragraph = etree.SubElement(hdr_root, f"{WQ}p")
+    p_pr = etree.SubElement(paragraph, f"{WQ}pPr")
+    jc = etree.SubElement(p_pr, f"{WQ}jc")
+    jc.set(f"{WQ}val", "right")
+
+    field = etree.SubElement(paragraph, f"{WQ}fldSimple")
+    field.set(f"{WQ}instr", " PAGE ")
+    run = etree.SubElement(field, f"{WQ}r")
+    r_pr = etree.SubElement(run, f"{WQ}rPr")
+    r_fonts = etree.SubElement(r_pr, f"{WQ}rFonts")
+    for attr in ("ascii", "hAnsi", "cs"):
+        r_fonts.set(f"{WQ}{attr}", BODY_REQUIRED_FONT_NAME)
+    size = etree.SubElement(r_pr, f"{WQ}sz")
+    size.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
+    text = etree.SubElement(run, f"{WQ}t")
+    text.text = "1"
+
+    return etree.tostring(hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _apply_apa_body_geometry(input_path, output_path, change_id):
+    """APA-00 margins and APA-05 running page number (C-22a / C-22b).
+
+    Every section is forced to 1in margins on all four sides, recorded as a
+    tracked ``sectPrChange``. A right-aligned PAGE field is installed in the
+    running header; both the ``default`` and ``first`` header references are
+    created so the page number survives whether or not another pass later
+    enables ``titlePg``.
+    """
+    with zipfile.ZipFile(input_path, "r") as z:
+        names = z.namelist()
+        parts = {}
+        for item in z.infolist():
+            parts[item.filename] = z.read(item.filename)
+
+    if "word/document.xml" not in parts or "word/_rels/document.xml.rels" not in parts:
+        return False
+
+    doc_root = etree.fromstring(parts["word/document.xml"])
+    rels_root = etree.fromstring(parts["word/_rels/document.xml.rels"])
+    body = doc_root.find(f"{WQ}body")
+    if body is None:
+        return False
+
+    changed = False
+
+    # Snapshot the real sections before mutating: sectPrChange nests a copy of
+    # the old sectPr, and iterating the live tree would otherwise pick those
+    # copies up as if they were further sections.
+    real_sections = list(body.findall(f"{WQ}sectPr"))
+    real_sections.extend(body.findall(f".//{WQ}pPr/{WQ}sectPr"))
+
+    next_id = change_id
+    for sect_pr in real_sections:
+        if _apply_apa_section_margins(sect_pr, next_id) is True:
+            changed = True
+        next_id += 1
+
+    ct_xml = parts.get("[Content_Types].xml")
+    for ref_type in ("default", "first"):
+        sect_pr = _first_section_properties(doc_root)
+        if sect_pr is None:
+            sect_pr = etree.SubElement(body, f"{WQ}sectPr")
+        header_name, _created = _ensure_header_reference(sect_pr, rels_root, names, ref_type)
+        if header_name == "":
+            continue
+        old_header = parts.get(header_name)
+        new_header = _make_page_number_header(old_header)
+        if new_header != old_header:
+            parts[header_name] = new_header
+            changed = True
+        if header_name not in names:
+            names.append(header_name)
+        if ct_xml is not None:
+            ct_xml = _patch_header_content_type(ct_xml, header_name)
+
+    if changed is False:
+        return False
+
+    parts["word/document.xml"] = etree.tostring(
+        doc_root, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    parts["word/_rels/document.xml.rels"] = etree.tostring(
+        rels_root, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    if ct_xml is not None:
+        parts["[Content_Types].xml"] = ct_xml
+
+    tmp_path = output_path + ".tmp"
+    with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for name, data in parts.items():
+            zout.writestr(name, data)
+    os.replace(tmp_path, output_path)
+    return True
+
+
 def _apply_tracked_body_paragraph_format(para_element, fix, change_id):
     p_pr = para_element.find(f"{WQ}pPr")
     old_p_pr = _copy_properties_without_change(p_pr, f"{WQ}pPr", f"{WQ}pPrChange")
@@ -8179,20 +8387,20 @@ def _apply_tracked_body_paragraph_format(para_element, fix, change_id):
 
     if fix.get("alignment") is True:
         jc = _find_or_make_child(p_pr, f"{WQ}jc")
-        jc.set(f"{WQ}val", "both")
+        jc.set(f"{WQ}val", "left")
 
     if fix.get("line_spacing") is True or fix.get("spacing") is True:
         spacing = _find_or_make_child(p_pr, f"{WQ}spacing")
-        spacing.set(f"{WQ}line", BODY_REQUIRED_LINE_SPACING_XML)
+        spacing.set(f"{WQ}line", APA_DOUBLE_SPACING_TWIPS)
         spacing.set(f"{WQ}lineRule", "auto")
-        spacing.set(f"{WQ}after", BODY_REQUIRED_SPACE_AFTER_XML)
+        spacing.set(f"{WQ}after", APA_SPACE_AFTER_TWIPS)
         spacing.set(f"{WQ}before", "0")
 
     if fix.get("indent") is True:
         ind = _find_or_make_child(p_pr, f"{WQ}ind")
         ind.set(f"{WQ}left", "0")
         ind.set(f"{WQ}start", "0")
-        ind.set(f"{WQ}firstLine", "0")
+        ind.set(f"{WQ}firstLine", APA_FIRST_LINE_INDENT_TWIPS)
         if f"{WQ}hanging" in ind.attrib:
             del ind.attrib[f"{WQ}hanging"]
         if f"{WQ}hangingChars" in ind.attrib:
@@ -8386,94 +8594,30 @@ def _apply_document_body_plan(input_path, output_path, body_plan):
     return applied_any
 
 
-def _heading_should_be_centered(text):
-    clean = _normalise_heading_text(text)
-    clean = clean.rstrip(":.")
+def _strip_heading_direct_jc(input_path, output_path):
+    """Drop a direct ``w:jc`` from Heading 1-5 paragraphs.
 
-    for heading_text in CENTER_ALIGNED_HEADING_TEXTS:
-        if clean == heading_text:
-            return True
-
-    return False
-
-
-def _heading_should_be_left_aligned(text):
-    clean = _normalise_heading_text(text)
-    clean = clean.rstrip(":.")
-
-    for heading_text in LEFT_ALIGNED_HEADING_TEXTS:
-        if clean == heading_text:
-            return True
-
-    return False
-
-
-def _read_direct_paragraph_alignment(para_element):
-    p_pr = para_element.find(f"{WQ}pPr")
-    if p_pr is None:
-        return ""
-
-    jc = p_pr.find(f"{WQ}jc")
-    if jc is None:
-        return ""
-
-    value = jc.get(f"{WQ}val", "")
-    if value is None:
-        return ""
-
-    return value
-
-
-def _style_already_centres_heading(style_name):
-    if style_name == HEADING_1_STYLE_ID:
-        return True
-    if style_name == "Heading1":
-        return True
-    if style_name == "ReferencesHeading":
-        return True
-    return False
-
-
-#align headings that have a journal-specific alignment rule
-def _apply_heading_center_alignment(input_path, output_path):
+    > C-23 / APA-11: paragraph-level alignment beats the style, so a leftover
+    > ``jc=center`` on a Level 2 heading would render flush-centred even though
+    > the style now says flush-left. Removing it hands alignment back to the
+    > heading style, which is the single source of truth for each level.
+    """
     doc_root, body_paras = _load_body_paras_raw(input_path)
     changed = False
 
     for para_element in body_paras:
-        text = _raw_paragraph_text(para_element)
-        style_name = _read_raw_paragraph_style_name(para_element)
-        if _heading_should_be_left_aligned(text) is True or style_name in TITLE_LEFT_ALIGNED_STYLE_IDS:
-            direct_alignment = _read_direct_paragraph_alignment(para_element)
-            if direct_alignment == "left":
-                continue
-
-            p_pr = para_element.find(f"{WQ}pPr")
-            if p_pr is None:
-                p_pr = etree.Element(f"{WQ}pPr")
-                para_element.insert(0, p_pr)
-
-            jc = _find_or_make_child(p_pr, f"{WQ}jc")
-            jc.set(f"{WQ}val", "left")
-            changed = True
-            continue
-
-        if _heading_should_be_centered(text) is False:
-            continue
-
-        direct_alignment = _read_direct_paragraph_alignment(para_element)
-        if direct_alignment == "center":
-            continue
-
-        if direct_alignment == "" and _style_already_centres_heading(style_name) is True:
+        if _read_raw_paragraph_style_name(para_element) not in APA_HEADING_STYLE_IDS:
             continue
 
         p_pr = para_element.find(f"{WQ}pPr")
         if p_pr is None:
-            p_pr = etree.Element(f"{WQ}pPr")
-            para_element.insert(0, p_pr)
+            continue
 
-        jc = _find_or_make_child(p_pr, f"{WQ}jc")
-        jc.set(f"{WQ}val", "center")
+        jc = p_pr.find(f"{WQ}jc")
+        if jc is None:
+            continue
+
+        p_pr.remove(jc)
         changed = True
 
     if changed is False:
@@ -8481,6 +8625,463 @@ def _apply_heading_center_alignment(input_path, output_path):
 
     new_doc_xml = etree.tostring(doc_root, xml_declaration=True, encoding="UTF-8", standalone=True)
     _save_doc_xml_to_zip(input_path, output_path, new_doc_xml)
+    return True
+
+
+#APA heading levels 1-5 (APA-11)
+def _apply_apa_heading_styles(input_path, output_path):
+    """Copy the APA base Heading 1-5 styles into the output and clear overrides.
+
+    Two halves:
+
+    1. **Styles.** The APA base ``.docx`` already carries APA-11 definitions
+       (L1 centred bold, L2 flush-left bold, L3 flush-left bold-italic, L4
+       indented bold, L5 indented bold-italic; all Calibri, ``line=480``,
+       ``after=0``, ``keepNext``). Those are pushed onto the output document
+       with ``replace_existing=True`` so an input carrying JUTLP/Word-default
+       heading definitions cannot survive.
+    2. **Overrides.** Direct ``w:jc`` on a heading paragraph is stripped so the
+       style governs.
+
+    This replaces the old ``CENTER_ALIGNED_HEADING_TEXTS`` policy, which
+    guessed a heading's level from its *text* and wrote a paragraph-level
+    alignment per match. Text matching cannot tell Level 1 from Level 2, so it
+    centred every listed section heading regardless of level.
+    """
+    styles_applied = _ensure_template_styles_available(
+        input_path,
+        output_path,
+        APA_HEADING_STYLE_NAMES,
+        replace_existing=True,
+    )
+
+    source = output_path if styles_applied else input_path
+    jc_stripped = _strip_heading_direct_jc(source, output_path)
+
+    return styles_applied or jc_stripped
+
+
+APA_TITLE_PAGE_CHANGE_ID = 9650
+RUNNING_HEAD_MAX_CHARS = 50
+APA_TITLE_PAGE_SPACER_COUNT = 3
+
+
+def _resolve_apa_title_page_mode(mode=None):
+    """Resolve the D1 title-page mode without accepting arbitrary values."""
+    candidate = str(mode or "").strip().lower()
+    if candidate in {"student", "professional"}:
+        return candidate
+
+    configured = str(os.environ.get("APA7_TITLE_PAGE_MODE", "")).strip().lower()
+    if configured in {"student", "professional"}:
+        return configured
+
+    configured = str(_APA7_CONFIG.DEFAULT_MODE or "auto").strip().lower()
+    return configured if configured in {"student", "professional"} else "auto"
+
+
+def _derive_running_head(title_text):
+    clean = re.sub(r"\s+", " ", (title_text or "")).strip()
+    if len(clean) <= RUNNING_HEAD_MAX_CHARS:
+        return clean.upper()
+
+    truncated = clean[:RUNNING_HEAD_MAX_CHARS].rsplit(" ", 1)[0].strip()
+    return (truncated or clean[:RUNNING_HEAD_MAX_CHARS].strip()).upper()
+
+
+def _paragraph_style_id(para_element):
+    p_pr = para_element.find(f"{WQ}pPr")
+    if p_pr is None:
+        return ""
+    p_style = p_pr.find(f"{WQ}pStyle")
+    return p_style.get(f"{WQ}val", "") if p_style is not None else ""
+
+
+def _title_page_metadata_plan(docxpath, mode=None):
+    doc_root, body_paras = _load_body_paras_raw(docxpath)
+    front_page_paras = _front_page_body_paras(body_paras)
+    title_state = titleFound(docxpath)
+    title_idx = title_state.get("anchor_pos") if title_state.get("title_found") else None
+
+    author_state = authorFound(docxpath)
+    authors_idx = auth_start_pos if auth_start_pos is not None else None
+    affiliation_indices = []
+    course_indices = []
+    instructor_indices = []
+    due_date_indices = []
+    author_note_indices = []
+
+    if title_idx is not None:
+        for index, para in enumerate(body_paras):
+            if index <= title_idx or para not in front_page_paras:
+                continue
+            text = _paragraph_direct_text(para)
+            if text == "":
+                continue
+            if authors_idx is None and _looks_like_author_list_text(text):
+                authors_idx = index
+                continue
+            if (
+                authors_idx is None
+                and not _looks_like_course_line(text)
+                and not _looks_like_instructor_line(text)
+                and not _looks_like_due_date_line(text)
+                and not _paragraph_has_affiliations_block(text)
+            ):
+                authors_idx = index
+                continue
+            if index <= (authors_idx if authors_idx is not None else title_idx):
+                continue
+
+            style_id = _paragraph_style_id(para)
+            if style_id in {AFFILIATIONS_REQUIRED_STYLE_ID, "Author Affiliations"}:
+                affiliation_indices.append(index)
+            elif _paragraph_has_affiliations_block(text) and not _looks_like_author_list_text(text):
+                affiliation_indices.append(index)
+            elif (
+                not affiliation_indices
+                and not _looks_like_course_line(text)
+                and not _looks_like_instructor_line(text)
+                and not _looks_like_due_date_line(text)
+                and not _looks_like_author_note_line(text)
+            ):
+                affiliation_indices.append(index)
+
+            if _looks_like_course_line(text):
+                course_indices.append(index)
+            elif _looks_like_instructor_line(text):
+                instructor_indices.append(index)
+            elif _looks_like_due_date_line(text):
+                due_date_indices.append(index)
+            elif _looks_like_author_note_line(text):
+                author_note_indices.append(index)
+
+    student_markers = bool(course_indices or instructor_indices or due_date_indices)
+    resolved_mode = _resolve_apa_title_page_mode(mode)
+    if resolved_mode == "auto":
+        resolved_mode = "student" if student_markers or not author_note_indices else "professional"
+
+    return {
+        "mode": resolved_mode,
+        "title_idx": title_idx,
+        "title_text": title_state.get("title_text", ""),
+        "authors_idx": authors_idx,
+        "affiliation_indices": affiliation_indices,
+        "course_indices": course_indices,
+        "instructor_indices": instructor_indices,
+        "due_date_indices": due_date_indices,
+        "author_note_indices": author_note_indices,
+        "title_found": title_state.get("title_found", False),
+        "authors_present": author_state.get("authors_present", False),
+        "body_paragraph_count": len(body_paras),
+        "doc_root": doc_root,
+    }
+
+
+def build_apa_title_page_plan(docxpath, mode=None):
+    """Return the detected APA-07 title-page roles and resolved mode."""
+    plan = _title_page_metadata_plan(docxpath, mode=mode)
+    plan.pop("doc_root", None)
+    return plan
+
+
+def _remove_front_page_artifacts(doc_root, body_paras):
+    changed = False
+    for para in list(_front_page_body_paras(body_paras)):
+        if _element_has_textbox(para):
+            for child in list(para.iter()):
+                if _xml_local_name(child) in {"txbxContent", "textbox"}:
+                    parent = child.getparent()
+                    if parent is not None:
+                        parent.remove(child)
+                        changed = True
+        elif _paragraph_has_picture(para) and _paragraph_direct_text(para) == "":
+            for child in list(para.iter()):
+                if _xml_local_name(child) in {"blip", "imagedata"}:
+                    parent = child.getparent()
+                    if parent is not None:
+                        parent.remove(child)
+                        changed = True
+    return changed
+
+
+def _first_section_header_names(doc_root, rels_root, names):
+    sect_pr = _first_section_properties(doc_root)
+    if sect_pr is None:
+        return []
+
+    header_names = []
+    for header_ref in sect_pr.findall(f"{WQ}headerReference"):
+        target = _find_relationship_target(rels_root, header_ref.get(f"{RQ}id", ""))
+        header_name = _normalise_docx_target(target)
+        if header_name in names and header_name not in header_names:
+            header_names.append(header_name)
+    return header_names
+
+
+def _strip_header_picture_paragraphs(header_root):
+    changed = False
+    for para in list(header_root.findall(f".//{WQ}p")):
+        if not _paragraph_has_picture(para):
+            continue
+        if "PAGE" in "".join(para.itertext()):
+            for child in list(para.iter()):
+                if _xml_local_name(child) in {"blip", "imagedata"}:
+                    parent = child.getparent()
+                    if parent is not None:
+                        parent.remove(child)
+                        changed = True
+            continue
+        parent = para.getparent()
+        if parent is not None:
+            parent.remove(para)
+            changed = True
+    return changed
+
+
+def _set_title_page_ppr(para_element, style_id=None, change_id=APA_TITLE_PAGE_CHANGE_ID):
+    p_pr = para_element.find(f"{WQ}pPr")
+    old_p_pr = _copy_properties_without_change(p_pr, f"{WQ}pPr", f"{WQ}pPrChange")
+    if p_pr is None:
+        p_pr = etree.Element(f"{WQ}pPr")
+        para_element.insert(0, p_pr)
+
+    changed = False
+    if style_id:
+        p_style = p_pr.find(f"{WQ}pStyle")
+        if p_style is None:
+            p_style = etree.Element(f"{WQ}pStyle")
+            p_pr.insert(0, p_style)
+        if p_style.get(f"{WQ}val") != style_id:
+            p_style.set(f"{WQ}val", style_id)
+            changed = True
+
+    jc = _find_or_make_child(p_pr, f"{WQ}jc")
+    desired_alignment = "center"
+    if jc.get(f"{WQ}val") != desired_alignment:
+        jc.set(f"{WQ}val", desired_alignment)
+        changed = True
+
+    spacing = _find_or_make_child(p_pr, f"{WQ}spacing")
+    desired_spacing = {
+        f"{WQ}line": APA_DOUBLE_SPACING_TWIPS,
+        f"{WQ}lineRule": "auto",
+        f"{WQ}before": "0",
+        f"{WQ}after": APA_SPACE_AFTER_TWIPS,
+    }
+    for attr, value in desired_spacing.items():
+        if spacing.get(attr) != value:
+            spacing.set(attr, value)
+            changed = True
+
+    ind = _find_or_make_child(p_pr, f"{WQ}ind")
+    for attr, value in {
+        f"{WQ}left": "0",
+        f"{WQ}firstLine": "0",
+    }.items():
+        if ind.get(attr) != value:
+            ind.set(attr, value)
+            changed = True
+    for attr in (f"{WQ}hanging", f"{WQ}right", f"{WQ}start", f"{WQ}end"):
+        if attr in ind.attrib:
+            del ind.attrib[attr]
+            changed = True
+
+    if changed:
+        _remove_tracked_property_change(p_pr, f"{WQ}pPrChange")
+        p_pr_change = etree.SubElement(p_pr, f"{WQ}pPrChange")
+        _set_tracked_change_details(p_pr_change, change_id)
+        p_pr_change.append(old_p_pr)
+    return changed
+
+
+def _make_page_field():
+    field = etree.Element(f"{WQ}fldSimple")
+    field.set(f"{WQ}instr", " PAGE ")
+    run = etree.SubElement(field, f"{WQ}r")
+    r_pr = etree.SubElement(run, f"{WQ}rPr")
+    fonts = etree.SubElement(r_pr, f"{WQ}rFonts")
+    for attr in ("ascii", "hAnsi", "cs"):
+        fonts.set(f"{WQ}{attr}", BODY_REQUIRED_FONT_NAME)
+    size = etree.SubElement(r_pr, f"{WQ}sz")
+    size.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
+    text = etree.SubElement(run, f"{WQ}t")
+    text.text = "1"
+    return field
+
+
+def _ensure_running_head_header(header_root, running_head=None):
+    paragraphs = list(header_root.findall(f".//{WQ}p"))
+    page_para = next(
+        (para for para in paragraphs if any(
+            "PAGE" in field.get(f"{WQ}instr", "")
+            for field in para.iter(f"{WQ}fldSimple")
+        )),
+        None,
+    )
+    if page_para is None:
+        page_para = etree.SubElement(header_root, f"{WQ}p")
+
+    p_pr = page_para.find(f"{WQ}pPr")
+    if p_pr is None:
+        p_pr = etree.Element(f"{WQ}pPr")
+        page_para.insert(0, p_pr)
+    if running_head:
+        p_style = p_pr.find(f"{WQ}pStyle")
+        if p_style is None:
+            p_style = etree.SubElement(p_pr, f"{WQ}pStyle")
+        p_style.set(f"{WQ}val", "Header")
+    jc = _find_or_make_child(p_pr, f"{WQ}jc")
+    jc.set(f"{WQ}val", "left" if running_head else "right")
+    tabs = p_pr.find(f"{WQ}tabs")
+    if tabs is None:
+        tabs = etree.SubElement(p_pr, f"{WQ}tabs")
+    for tab in list(tabs):
+        tabs.remove(tab)
+    right_tab = etree.SubElement(tabs, f"{WQ}tab")
+    right_tab.set(f"{WQ}val", "right")
+    right_tab.set(f"{WQ}pos", "9360")
+
+    old_children = list(page_para)
+    fields = [
+        copy.deepcopy(field)
+        for field in page_para.iter(f"{WQ}fldSimple")
+        if "PAGE" in field.get(f"{WQ}instr", "")
+    ]
+    for child in old_children:
+        if child is not p_pr:
+            page_para.remove(child)
+    if not fields:
+        fields = [_make_page_field()]
+
+    if running_head:
+        run = etree.SubElement(page_para, f"{WQ}r")
+        text = etree.SubElement(run, f"{WQ}t")
+        text.text = running_head
+        tab_run = etree.SubElement(page_para, f"{WQ}r")
+        etree.SubElement(tab_run, f"{WQ}tab")
+    page_para.extend(fields)
+    return True
+
+
+def _apply_apa_title_page_headers(parts, doc_root, rels_root, names, mode, title_text):
+    running_head = _derive_running_head(title_text) if mode == "professional" else None
+    changed = False
+    for header_name in _first_section_header_names(doc_root, rels_root, names):
+        header_root = etree.fromstring(parts[header_name])
+        header_changed = _strip_header_picture_paragraphs(header_root)
+        _ensure_running_head_header(header_root, running_head)
+        new_xml = etree.tostring(header_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+        if new_xml != parts[header_name] or header_changed:
+            parts[header_name] = new_xml
+            changed = True
+    return changed
+
+
+def _apply_apa_title_page(input_path, output_path, mode=None, change_id=APA_TITLE_PAGE_CHANGE_ID):
+    """Normalize the front page for APA-07 and APA-06."""
+    title_state = titleFound(input_path)
+    title_plan = titleFormatCheck(input_path, title_state)
+    current_input = input_path
+    applied = _apply_title_plan(current_input, output_path, title_plan)
+    if applied:
+        current_input = output_path
+
+    metadata = _title_page_metadata_plan(current_input, mode=mode)
+    with zipfile.ZipFile(current_input, "r") as source:
+        names = source.namelist()
+        parts = {item.filename: source.read(item.filename) for item in source.infolist()}
+    if "word/document.xml" not in parts or "word/_rels/document.xml.rels" not in parts:
+        return applied
+
+    doc_root = etree.fromstring(parts["word/document.xml"])
+    rels_root = etree.fromstring(parts["word/_rels/document.xml.rels"])
+    body_paras = [el for el in doc_root.find(f"{WQ}body") if el.tag == f"{WQ}p"]
+    changed = _remove_front_page_artifacts(doc_root, body_paras)
+
+    metadata = _title_page_metadata_plan(current_input, mode=mode)
+    title_idx = metadata.get("title_idx")
+    if title_idx is not None:
+        body = doc_root.find(f"{WQ}body")
+        body_paras = [el for el in body if el.tag == f"{WQ}p"]
+        title_el = body_paras[title_idx] if title_idx < len(body_paras) else None
+        if title_el is not None:
+            blank_count = 0
+            index = title_idx - 1
+            while index >= 0 and _paragraph_direct_text(body_paras[index]) == "":
+                blank_count += 1
+                index -= 1
+            spacer_count = max(0, APA_TITLE_PAGE_SPACER_COUNT - blank_count)
+            for offset in range(spacer_count):
+                spacer = _make_inserted_styled_paragraph(
+                    "", "Normal", change_id + offset
+                )
+                body.insert(list(body).index(title_el), spacer)
+                changed = True
+
+            body_paras = [el for el in body if el.tag == f"{WQ}p"]
+            title_idx = next((i for i, el in enumerate(body_paras) if el is title_el), title_idx)
+            changed = _set_title_page_ppr(title_el, TITLE_REQUIRED_STYLE_ID, change_id) or changed
+
+            def shifted(index):
+                return index + spacer_count if index >= title_idx else index
+
+            authors_idx = metadata.get("authors_idx")
+            if authors_idx is not None:
+                authors_idx = shifted(authors_idx)
+                if authors_idx < len(body_paras):
+                    changed = _set_title_page_ppr(
+                        body_paras[authors_idx], AUTHORS_REQUIRED_STYLE_ID, change_id + 1
+                    ) or changed
+
+            role_indices = [
+                shifted(index)
+                for index in (
+                    metadata.get("affiliation_indices", [])
+                    + metadata.get("course_indices", [])
+                    + metadata.get("instructor_indices", [])
+                    + metadata.get("due_date_indices", [])
+                    + metadata.get("author_note_indices", [])
+                )
+            ]
+            for index in role_indices:
+                if index < len(body_paras):
+                    changed = _set_title_page_ppr(body_paras[index], None, change_id + 2) or changed
+
+            if metadata["mode"] == "professional":
+                student_indices = sorted(
+                    {
+                        shifted(index)
+                        for index in (
+                            metadata.get("course_indices", [])
+                            + metadata.get("instructor_indices", [])
+                            + metadata.get("due_date_indices", [])
+                        )
+                    },
+                    reverse=True,
+                )
+                for index in student_indices:
+                    if index < len(body_paras):
+                        parent = body_paras[index].getparent()
+                        parent.remove(body_paras[index])
+                        changed = True
+
+    changed = _apply_apa_title_page_headers(
+        parts, doc_root, rels_root, names, metadata["mode"], metadata.get("title_text", "")
+    ) or changed
+    if not changed:
+        if current_input != output_path:
+            shutil.copy2(current_input, output_path)
+        return applied
+
+    parts["word/document.xml"] = etree.tostring(
+        doc_root, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    temp_path = output_path + ".apa-title.tmp"
+    with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, data in parts.items():
+            target.writestr(name, data)
+    os.replace(temp_path, output_path)
     return True
 
 
@@ -9504,7 +10105,7 @@ def _template_heading_1_name(section_name):
 
 
 # Built from the shared SECTION_RENAME_MAP (single source of truth, see
-# canonical_jultp_template) so this silent Heading 1 rename covers exactly the
+# apa7_template) so this silent Heading 1 rename covers exactly the
 # same wordings as the tracked heading-corrections pass. Keys are normalised
 # aliases; values are the canonical JUTLP heading label.
 HEADING_1_TEXT_NORMALIZATIONS = {
@@ -9566,7 +10167,7 @@ def _apply_heading_2_title_case(input_path, output_path):
 
 
 #run all section planners and apply all generated edits/comments in sequence
-def build_edited_document(input_path, output_path=None):
+def build_edited_document(input_path, output_path=None, mode=None):
     auto_output_path = output_path is None
     if output_path is None:
         parent_dir = os.path.dirname(input_path)
@@ -9582,10 +10183,8 @@ def build_edited_document(input_path, output_path=None):
     current_input_path = input_path
     applied_any = False
 
-    title_applied = _apply_title_plan(current_input_path, output_path, title_plan)
-    if title_applied is True:
-        current_input_path = output_path
-        applied_any = True
+    # C-24a/C-24b apply the title plan inside the consolidated APA title-page pass.
+    title_applied = title_plan.get("action", "none") != "none"
 
     abstract_state = abstractFound(current_input_path)
     abstract_plan = abstractFormatCheck(current_input_path, abstract_state)
@@ -9613,6 +10212,13 @@ def build_edited_document(input_path, output_path=None):
         current_input_path = output_path
         applied_any = True
 
+    # C-23 / APA-11: restyle Heading 1-5 from the APA base before C-28 rewrites
+    # heading text, so the heading C-28 creates is already APA-styled.
+    heading_styles_applied = _apply_apa_heading_styles(current_input_path, output_path)
+    if heading_styles_applied is True:
+        current_input_path = output_path
+        applied_any = True
+
     heading_1_text_normalization_applied = _apply_heading_1_text_normalization(
         current_input_path, output_path
     )
@@ -9622,6 +10228,12 @@ def build_edited_document(input_path, output_path=None):
 
     normal_style_applied = _apply_normal_style_fix(current_input_path, output_path)
     if normal_style_applied is True:
+        current_input_path = output_path
+        applied_any = True
+
+    # C-22a / C-22b: APA 1in margins (APA-00) + running PAGE header (APA-05).
+    apa_geometry_applied = _apply_apa_body_geometry(current_input_path, output_path, 9600)
+    if apa_geometry_applied is True:
         current_input_path = output_path
         applied_any = True
 
@@ -9699,11 +10311,6 @@ def build_edited_document(input_path, output_path=None):
         current_input_path = output_path
         applied_any = True
 
-    heading_alignment_applied = _apply_heading_center_alignment(current_input_path, output_path)
-    if heading_alignment_applied is True:
-        current_input_path = output_path
-        applied_any = True
-
     heading_keep_next_applied = _apply_heading_keep_next(current_input_path, output_path)
     if heading_keep_next_applied is True:
         current_input_path = output_path
@@ -9717,21 +10324,13 @@ def build_edited_document(input_path, output_path=None):
         current_input_path = output_path
         applied_any = True
 
-    front_page_asset_plan = build_front_page_asset_check_plan(current_input_path)
-    front_page_asset_applied = _apply_front_page_asset_plan(
+    apa_title_page_plan = build_apa_title_page_plan(current_input_path, mode=mode)
+    apa_title_page_applied = _apply_apa_title_page(
         current_input_path,
         output_path,
-        front_page_asset_plan,
+        mode=mode,
     )
-    if front_page_asset_applied is True:
-        current_input_path = output_path
-        applied_any = True
-
-    front_page_textbox_normalised = _normalise_front_page_textbox_layout(
-        current_input_path,
-        output_path,
-    )
-    if front_page_textbox_normalised is True:
+    if apa_title_page_applied is True:
         current_input_path = output_path
         applied_any = True
 
@@ -9777,7 +10376,7 @@ def build_edited_document(input_path, output_path=None):
                 "corrections": narrative_citation_corrections,
             },
             "editorial_review": editorial_review_plan,
-            "front_page_assets": front_page_asset_plan,
+            "apa_title_page": apa_title_page_plan,
             "heading_corrections": heading_corrections,
         },
         "title_plan": title_plan,
@@ -9789,11 +10388,11 @@ def build_edited_document(input_path, output_path=None):
         "body_edit_plan": body_edit_plan,
         "narrative_citation_corrections": narrative_citation_corrections,
         "editorial_review_plan": editorial_review_plan,
-        "front_page_asset_plan": front_page_asset_plan,
+        "apa_title_page_plan": apa_title_page_plan,
         "intro_page_break_applied": intro_page_break_applied,
         "heading_1_text_normalization_applied": heading_1_text_normalization_applied,
         "normal_style_applied": normal_style_applied,
-        "heading_alignment_applied": heading_alignment_applied,
+        "heading_styles_applied": heading_styles_applied,
         "heading_keep_next_applied": heading_keep_next_applied,
         "heading_corrections": heading_corrections,
         "table_formatting_applied": table_formatting_applied,
@@ -9809,8 +10408,7 @@ def build_edited_document(input_path, output_path=None):
         "editorial_review_applied": editorial_review_applied,
         "practitioner_stub_applied": practitioner_stub_applied,
         "keywords_stub_applied": keywords_stub_applied,
-        "front_page_asset_applied": front_page_asset_applied,
-        "front_page_textbox_normalised": front_page_textbox_normalised,
+        "apa_title_page_applied": apa_title_page_applied,
         "applied": applied_any,
     }
 

@@ -3,7 +3,7 @@ import re
 from docx import Document as DocxDocument
 from docx.oxml.ns import qn as _qn
 
-from app.domain.canonical_jultp_template import (
+from app.domain.apa7_template import (
     CANONICAL_STRUCTURE,
     strip_leading_section_number,
     subsection_alias_match,
