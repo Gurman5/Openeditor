@@ -5905,9 +5905,9 @@ def _ensure_normal_style_body_rpr(input_path, output_path):
     The template's Normal style inherits its 11pt size from the *template's*
     docDefaults. When that style is copied into a manuscript whose own
     docDefaults carry no size, the body silently falls back to Word's 10pt
-    default (the reported "Arial size 10" bug). Setting rFonts=Arial and
+    default (the reported "Calibri size 10" bug). Setting rFonts=Calibri and
     sz/szCs=22 (11pt) directly on the Normal style guarantees every paragraph
-    that inherits Normal renders as 11pt Arial regardless of docDefaults.
+    that inherits Normal renders as 11pt Calibri regardless of docDefaults.
     """
     with zipfile.ZipFile(input_path, "r") as z:
         names = z.namelist()
@@ -5986,7 +5986,7 @@ def _apply_normal_style_fix(input_path, output_path):
         ["Normal"],
         replace_existing=True,
     )
-    # Pin Arial 11pt onto the Normal style so body text that inherits Normal is
+    # Pin Calibri 11pt onto the Normal style so body text that inherits Normal is
     # not left at Word's 10pt default after the template style is copied in.
     source = output_path if applied else input_path
     pinned = _ensure_normal_style_body_rpr(source, output_path)

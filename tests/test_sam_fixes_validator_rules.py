@@ -201,4 +201,5 @@ def test_sam_fixed_set_matches_evidence():
     assert SAM_FIXED_RULE_IDS == {
         "FP001", "FP002", "FP003", "FP005", "FP006", "FP011",
         "STY003", "STY004", "SPE002", "TAB001",
+        "APA002",
     }

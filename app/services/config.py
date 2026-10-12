@@ -13,9 +13,16 @@ OPENAI_MAX_TOKENS: int = int(os.environ.get("OPENAI_MAX_TOKENS", "16384"))
 # >  output_generation_samfix.py now imports these instead of hardcoding
 # > see output_generation_samfix.py line 3793
 ALLOWED_FONTS = {"Calibri", "Arial", "Times New Roman", "Georgia", "Lucida Sans Unicode"}
+# Reporting reference for APA002: the fixer normalises everything to
+# DEFAULT_FONT, but the check message names this set so the author sees which
+# typefaces APA actually permits. Consulted by apa7_formatting_checks only —
+# no fixer reads it.
 DEFAULT_FONT = "Calibri"          # C-27: default, Calibri for body + headings (D2 locked)
 DEFAULT_FONT_SIZE = 11
 HEADING_FONT = "Calibri"
+# Typefaces the font sweep must never rewrite (equations, symbols). Compared
+# case-insensitively; shared by run_font_corrections and docx_format_helpers.
+SYMBOL_FONTS = frozenset({"symbol", "wingdings", "wingdings 2", "wingdings 3", "webdings"})
 DEFAULT_MODE = os.environ.get(
     "APA7_TITLE_PAGE_MODE",
     os.environ.get("DEFAULT_MODE", "auto"),

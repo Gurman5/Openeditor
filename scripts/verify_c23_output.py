@@ -125,6 +125,13 @@ for level, (exp_jc, exp_bold, exp_italic, exp_left) in APA11.items():
         got_font = fonts.get(f"{WQ}ascii") if fonts is not None else None
         check(f"Heading {level} font=Calibri (C-27/D2)",
               got_font == "Calibri", f"got {got_font}")
+        check(f"Heading {level} hAnsi/cs=Calibri, no theme binding (C-27)",
+              fonts is not None
+              and fonts.get(f"{WQ}hAnsi") == "Calibri"
+              and fonts.get(f"{WQ}cs") == "Calibri"
+              and fonts.get(f"{WQ}asciiTheme") is None
+              and fonts.get(f"{WQ}hAnsiTheme") is None,
+              f"hAnsi={fonts.get(f'{WQ}hAnsi') if fonts is not None else None}")
 print()
 
 

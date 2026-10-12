@@ -1,34 +1,68 @@
-"""Normalise run-level font (and reference size) to the JUTLP template font.
+"""Normalise document fonts to the APA default (Calibri 11pt, C-27).
 
-The Normal style is pinned to Arial 11pt elsewhere, so body text that *inherits*
-Normal is already correct. But manuscripts converted from other tools carry
-**direct** run-level font overrides (commonly Times New Roman) and direct sizes
-that survive on reference entries, the abstract, and headings — the paragraph
-style can't override a direct run property, so those runs still render in the
-wrong font/size.
+Two layers, matching how Word resolves fonts:
 
-This pass applies tracked run-property changes:
+* **Run level (tracked).** Every text run whose *effective* Latin typeface is
+  not the default is rewritten with a tracked ``w:rPrChange``: runs carrying
+  a wrong explicit font, runs bound only to the Office theme (which resolves
+  to Cambria via ``theme1.xml``, not to the paragraph style), and runs
+  inheriting a wrong font from a linked character style. Runs with no direct
+  font information are left alone — they correctly inherit from their
+  paragraph style, which the style layer owns.
+* **Style level (silent).** Every ``w:rFonts`` in ``styles.xml`` and the
+  ``w:docDefaults`` run default are pinned to the default. Styles carry no
+  tracked-change mechanism, so — like ``_ensure_normal_style_body_rpr`` —
+  this is a direct edit.
 
-* **Reference entries** must be Arial 11pt (the APA 7 style inherits the 11pt
-  base): every reference run is set to Arial + sz/szCs=22.
-* **Every other run** that carries a *direct* non-Arial Latin font is switched
-  to Arial (font family only — its size is left alone, e.g. headings keep their
-  heading size). Runs with no direct font are untouched: they correctly inherit
-  Arial from their (template) paragraph style.
+Symbol typefaces (Symbol / Wingdings / Webdings…) are never rewritten at
+either layer: a ∑ set in Symbol that the sweep "fixed" to Calibri would
+silently corrupt the manuscript.
+
+Reference entries additionally get 11pt (``sz``/``szCs``); every other run
+keeps its size (headings keep their heading size).
+
+Parts swept: ``document.xml``, headers, footers, footnotes, endnotes and
+comments. ``styles.xml`` is swept for style-level fonts (and read for
+reference-entry style ids).
 """
 
 from __future__ import annotations
 
 import os
 import zipfile
-from copy import deepcopy
 
+from copy import deepcopy
 from lxml import etree
 
+from app.services.config import DEFAULT_FONT, DEFAULT_FONT_SIZE
+from app.services.docx_format_helpers import (
+    is_symbol_font,
+    rfonts_explicit,
+    rfonts_needs_fix,
+    set_explicit_font,
+)
 from app.services.language_corrections import AUTHOR, DATE, WQ
 
-_TARGET_FONT = "Arial"
-_TARGET_SZ = "22"  # 11pt in half-points
+_TARGET_FONT = DEFAULT_FONT
+_TARGET_SZ = str(int(DEFAULT_FONT_SIZE) * 2)  # 11pt in half-points
+
+# Parts (besides document.xml) whose text runs the sweep covers. Headers and
+# footers repeat on every page; footnotes/endnotes/comments carry
+# author-facing text — a Times run there is as wrong as one in the body.
+_TEXT_PART_SUFFIXES = (".xml",)
+_TEXT_PART_NAMES = ("word/footnotes.xml", "word/endnotes.xml", "word/comments.xml")
+
+
+def _is_text_part(name: str) -> bool:
+    if name == "word/document.xml":
+        return True
+    if name in _TEXT_PART_NAMES:
+        return True
+    base = name.rsplit("/", 1)[-1]
+    return (base.startswith("header") or base.startswith("footer")) and name.endswith(
+        _TEXT_PART_SUFFIXES
+    )
+
 
 # Reference entry style ids/names (same set the indent + format passes use).
 _REF_STYLE_IDS_KNOWN = frozenset({
@@ -59,6 +93,42 @@ def _ref_style_ids(styles_xml: bytes | None) -> set[str]:
     return ids
 
 
+def _char_style_font_map(styles_xml: bytes | None) -> dict[str, dict[str, str]]:
+    """Return character-style id -> explicit ``{attr: typeface}`` map.
+
+    Used to detect runs that inherit a wrong font from a linked character
+    style (e.g. a "Times" char style): such runs carry no direct ``w:rFonts``
+    but still render in the wrong typeface, so the sweep pins them directly.
+    """
+    out: dict[str, dict[str, str]] = {}
+    if not styles_xml:
+        return out
+    try:
+        root = etree.fromstring(styles_xml)
+    except etree.XMLSyntaxError:
+        return out
+    for style_el in root.findall(f"{WQ}style"):
+        if style_el.get(f"{WQ}type", "paragraph") != "character":
+            continue
+        sid = style_el.get(f"{WQ}styleId")
+        if not sid:
+            continue
+        rPr = style_el.find(f"{WQ}rPr")
+        rfonts = rPr.find(f"{WQ}rFonts") if rPr is not None else None
+        fonts = rfonts_explicit(rfonts)
+        if fonts:
+            out[sid] = fonts
+    return out
+
+
+def _run_char_style_id(run_el: etree._Element) -> str:
+    rPr = run_el.find(f"{WQ}rPr")
+    if rPr is None:
+        return ""
+    rStyle = rPr.find(f"{WQ}rStyle")
+    return rStyle.get(f"{WQ}val", "") if rStyle is not None else ""
+
+
 def _para_style_val(para_el: etree._Element) -> str:
     pPr = para_el.find(f"{WQ}pPr")
     if pPr is None:
@@ -72,7 +142,9 @@ def _direct_text_runs(para_el: etree._Element):
 
     Includes runs nested in a ``w:hyperlink`` (e.g. a reference DOI link, which
     often keeps the original Times font) but excludes runs inside a tracked
-    ``w:del`` (being deleted) and runs inside a nested ``w:p`` (a text box)."""
+    ``w:del`` (being deleted) and runs inside a nested ``w:p`` (a text box).
+    Field-code runs (``w:instrText``, e.g. the PAGE field) carry no ``w:t``
+    and are skipped — the page-number run already declares Calibri."""
     for r in para_el.iter(f"{WQ}r"):
         anc = r.getparent()
         owner_p = None
@@ -91,13 +163,6 @@ def _direct_text_runs(para_el: etree._Element):
         if t is None or not (t.text or "").strip():
             continue
         yield r
-
-
-def _current_font(r_pr) -> str | None:
-    if r_pr is None:
-        return None
-    rf = r_pr.find(f"{WQ}rFonts")
-    return rf.get(f"{WQ}ascii") if rf is not None else None
 
 
 def _current_sz(r_pr) -> str | None:
@@ -137,8 +202,7 @@ def _apply_tracked_run_font(run_el, set_font: bool, set_size: bool, change_id: i
         rf = r_pr.find(f"{WQ}rFonts")
         if rf is None:
             rf = etree.SubElement(r_pr, f"{WQ}rFonts")
-        for attr in ("ascii", "hAnsi", "cs"):
-            rf.set(f"{WQ}{attr}", _TARGET_FONT)
+        set_explicit_font(rf, _TARGET_FONT)
     if set_size:
         for tag in ("sz", "szCs"):
             el = r_pr.find(f"{WQ}{tag}")
@@ -158,38 +222,116 @@ def _apply_tracked_run_font(run_el, set_font: bool, set_size: bool, change_id: i
     return True
 
 
+def _sweep_styles_fonts(styles_root: etree._Element) -> list[str]:
+    """Pin every style-level ``w:rFonts`` to the target font (silent).
+
+    Symbol-only styles are skipped. Returns the changed style ids.
+    Sizes are deliberately untouched — headings keep their own size.
+    """
+    changed: list[str] = []
+    for style_el in styles_root.findall(f"{WQ}style"):
+        rPr = style_el.find(f"{WQ}rPr")
+        if rPr is None:
+            continue
+        rfonts = rPr.find(f"{WQ}rFonts")
+        if rfonts is None:
+            continue
+        explicit = rfonts_explicit(rfonts)
+        if explicit and all(is_symbol_font(v) for v in explicit.values()):
+            continue
+        if set_explicit_font(rfonts, _TARGET_FONT):
+            changed.append(style_el.get(f"{WQ}styleId", ""))
+    return changed
+
+
+def _sweep_docdefaults(styles_root: etree._Element) -> bool:
+    """Pin ``w:docDefaults`` run fonts to the target (silent).
+
+    A theme-bound docDefault resolves through ``theme1.xml`` (minor font =
+    Cambria in our template), so any run inheriting all the way down renders
+    in Cambria. Pinning explicit fonts here closes that leak.
+    """
+    changed = False
+    for rPr in styles_root.findall(f"{WQ}docDefaults/{WQ}rPrDefault/{WQ}rPr"):
+        rfonts = rPr.find(f"{WQ}rFonts")
+        if rfonts is None:
+            rfonts = etree.SubElement(rPr, f"{WQ}rFonts")
+        if set_explicit_font(rfonts, _TARGET_FONT):
+            changed = True
+    return changed
+
+
 def apply_run_font_corrections(
     input_path: str,
     output_path: str,
     next_change_id: int = 1,
 ) -> tuple[int, list[dict]]:
-    """Set references to Arial 11pt and convert leftover direct non-Arial runs
-    to Arial, as tracked changes. Returns ``(next_change_id, actions)``."""
+    """Normalise fonts to Calibri 11pt across runs and styles.
+
+    Run-level fixes are tracked changes; style-level (``styles.xml``) and
+    ``docDefaults`` fixes are silent direct edits (styles carry no
+    tracked-change mechanism). Returns ``(next_change_id, actions)``.
+    """
     with zipfile.ZipFile(input_path, "r") as z:
         names = z.namelist()
-        doc_xml = z.read("word/document.xml")
+        parts = {n: z.read(n) for n in names if _is_text_part(n)}
         styles_xml = z.read("word/styles.xml") if "word/styles.xml" in names else None
 
     ref_ids = _ref_style_ids(styles_xml)
-    doc_root = etree.fromstring(doc_xml)
-    body = doc_root.find(f"{WQ}body")
+    char_fonts = _char_style_font_map(styles_xml)
     actions: list[dict] = []
-    if body is not None:
-        for para_el in body.iter(f"{WQ}p"):
+    rewritten: dict[str, bytes] = {}
+
+    # ── Style layer (silent) ─────────────────────────────────────────────
+    if styles_xml is not None:
+        styles_root = etree.fromstring(styles_xml)
+        for sid in _sweep_styles_fonts(styles_root):
+            actions.append({
+                "rule": "style_font",
+                "ref": False,
+                "font_fixed": True,
+                "size_fixed": False,
+                "part": "word/styles.xml",
+                "scope": "style",
+                "style": sid,
+            })
+        defaults_fixed = _sweep_docdefaults(styles_root)
+        if defaults_fixed:
+            actions.append({
+                "rule": "docdefaults_font",
+                "ref": False,
+                "font_fixed": True,
+                "size_fixed": False,
+                "part": "word/styles.xml",
+                "scope": "defaults",
+                "style": "",
+            })
+        if any(a["scope"] in ("style", "defaults") for a in actions):
+            rewritten["word/styles.xml"] = etree.tostring(
+                styles_root, xml_declaration=True, encoding="UTF-8", standalone=True
+            )
+
+    # ── Run layer (tracked) ──────────────────────────────────────────────
+    for part_name, part_xml in parts.items():
+        root = etree.fromstring(part_xml)
+        part_changed = False
+        for para_el in root.iter(f"{WQ}p"):
             is_ref = _para_style_val(para_el) in ref_ids
             for run_el in _direct_text_runs(para_el):
                 r_pr = run_el.find(f"{WQ}rPr")
                 # Skip runs we've already changed.
                 if r_pr is not None and r_pr.find(f"{WQ}rPrChange") is not None:
                     continue
-                font = _current_font(r_pr)
+                rfonts = r_pr.find(f"{WQ}rFonts") if r_pr is not None else None
+                char_id = _run_char_style_id(run_el)
+                reason = rfonts_needs_fix(
+                    rfonts, char_fonts.get(char_id), _TARGET_FONT
+                )
                 if is_ref:
-                    set_font = font != _TARGET_FONT
+                    set_font = reason is not None
                     set_size = _current_sz(r_pr) != _TARGET_SZ
                 else:
-                    # Only fix a wrong DIRECT font; leave inheriting runs and
-                    # sizes alone (headings keep their own size).
-                    set_font = font is not None and font != _TARGET_FONT
+                    set_font = reason is not None
                     set_size = False
                 if not (set_font or set_size):
                     continue
@@ -199,10 +341,18 @@ def apply_run_font_corrections(
                     "ref": is_ref,
                     "font_fixed": set_font,
                     "size_fixed": set_size,
+                    "part": part_name,
+                    "scope": "run",
+                    "reason": reason or ("size" if set_size else "explicit"),
                 })
                 next_change_id += 1
+                part_changed = True
+        if part_changed:
+            rewritten[part_name] = etree.tostring(
+                root, xml_declaration=True, encoding="UTF-8", standalone=True
+            )
 
-    if not actions:
+    if not rewritten:
         if input_path != output_path:
             with zipfile.ZipFile(input_path, "r") as zin, zipfile.ZipFile(
                 output_path, "w", zipfile.ZIP_DEFLATED
@@ -211,17 +361,14 @@ def apply_run_font_corrections(
                     zout.writestr(item, zin.read(item.filename))
         return next_change_id, actions
 
-    new_doc_xml = etree.tostring(
-        doc_root, xml_declaration=True, encoding="UTF-8", standalone=True
-    )
     tmp = output_path + ".runfont.tmp"
     try:
         with zipfile.ZipFile(input_path, "r") as zin, zipfile.ZipFile(
             tmp, "w", zipfile.ZIP_DEFLATED
         ) as zout:
             for item in zin.infolist():
-                if item.filename == "word/document.xml":
-                    zout.writestr(item, new_doc_xml)
+                if item.filename in rewritten:
+                    zout.writestr(item, rewritten[item.filename])
                 else:
                     zout.writestr(item, zin.read(item.filename))
         os.replace(tmp, output_path)

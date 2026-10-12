@@ -4,6 +4,7 @@ from docx import Document as DocxDocument
 from docx.oxml.ns import qn as _qn
 
 from app.domain.apa7_template import APA7_STRUCTURE
+from app.services.apa7_formatting_checks import check_fonts
 from app.services.config import (
     APA7_DEFAULT_FONT,
     APA7_DEFAULT_FONT_SIZE_PT,
@@ -234,6 +235,7 @@ def validate(docx_path: str) -> dict:
     results += check_front_page(parsed)
     results += check_abstract(parsed)
     results += check_keywords(parsed)
+    results += check_fonts(docx_path)
 
     # Ensure every result item contains matrix_id (C-20a)
     for res in results:

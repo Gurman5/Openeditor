@@ -1043,9 +1043,9 @@ def doc_analysis_pipeline(
     except Exception as exc:
         _record_stage_error("Reference indent corrections", exc)
 
-    # 4) Normalise run-level fonts to Arial 11pt — now applied to the
+    # 4) Normalise run-level fonts to Calibri 11pt — now applied to the
     # reconstructed reference text and injected DOI link runs (both inside a
-    # w:ins, so styled directly), plus any leftover direct non-Arial run.
+    # w:ins, so styled directly), plus any leftover direct non-Calibri run.
     run_font_actions: list[dict] = []
     try:
         next_lang_id, run_font_actions = apply_run_font_corrections(

@@ -28,6 +28,7 @@ comment-only.
 SAM_FIXED_RULE_IDS = frozenset({
     "FP001", "FP002", "FP003", "FP005", "FP006", "FP011",
     "STY003", "STY004", "SPE002", "TAB001",
+    "APA002",
 })
 
 
@@ -99,4 +100,11 @@ FAMILY_VERDICTS = {
             "SEC008 and REF003 routes to ref_verifications.",
             ["REF001", "REF003"]),
     "REFE": ("comment", "Reference-format flags are comment-only."),
+    # APA-7 deterministic formatting checks (Track C). Default is
+    # comment-only; APA002 (font sweep) is normalised by the run/style
+    # font pass. C-25/C-26 extend this exception list with
+    # APA008/APA009/APA010/APA011/APA012.
+    "APA": ("comment",
+            "Default is comment-only; APA002 is normalised by the font sweep.",
+            ["APA002"]),
 }
