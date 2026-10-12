@@ -185,7 +185,6 @@ _NON_TITLE_FRONT_STYLES: frozenset[str] = frozenset({
 
 _NON_TITLE_FRONT_HEADINGS: frozenset[str] = frozenset({
     "abstract",
-    "practitioner notes",
     "keywords",
 })
 

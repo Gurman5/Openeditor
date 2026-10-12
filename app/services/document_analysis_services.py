@@ -308,7 +308,7 @@ def extract_subsections(paragraphs: list[ParagraphRecord], section_name: str) ->
     ]
 
 
-#extract the front page (contains title, authors, affiliations, abstract (<250 words), practitioner notes, and keywords.)
+#extract the front page (contains title, authors, affiliations, abstract, and keywords.)
 def get_front_page(paragraphs: list[ParagraphRecord]) -> list[ParagraphRecord]:
     # Use fuzzy match so "Introduction: Background" also works as the boundary
     intro = next(
@@ -332,7 +332,6 @@ def front_page_summary(paragraphs: list[ParagraphRecord]) -> dict:
         "authors_found": any(p.style == "Authors" for p in front),
         "affiliations_found": any(p.style == "Author Affiliations" for p in front),
         "abstract_heading_found": any(p.text == "Abstract" for p in front),
-        "practitioner_notes_heading_found": any(p.text == "Practitioner Notes" for p in front),
         "keywords_heading_found": any(p.text == "Keywords" for p in front),
     }
 
@@ -366,7 +365,15 @@ _ABSTRACT_BOUNDARY_STYLES = frozenset({
     "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading Front Page",
 })
 _ABSTRACT_BOUNDARY_TEXTS = frozenset({
-    "practitioner notes", "practioner notes", "keywords", "keyword", "citation",
+    "keywords", "keyword", "citation",
+})
+# "Practitioner Notes" is NOT an APA element and is no longer required, checked
+# or reported (C-26). It stays here purely as a *terminator*: a manuscript that
+# still carries a legacy PN block would otherwise have its notes swallowed into
+# the abstract, inflating the word count. Presence is ignored; the scan just
+# stops there.
+_LEGACY_ABSTRACT_TERMINATORS = frozenset({
+    "practitioner notes", "practioner notes",
 })
 
 
@@ -375,6 +382,8 @@ def _is_abstract_boundary(p: ParagraphRecord) -> bool:
         return True
     low = p.text.strip().lower()
     if low in _ABSTRACT_BOUNDARY_TEXTS:
+        return True
+    if low in _LEGACY_ABSTRACT_TERMINATORS:
         return True
     return low.startswith(("keywords:", "keyword:", "citation:"))
 
@@ -388,14 +397,13 @@ def extract_abstract(paragraphs: list[ParagraphRecord]) -> dict:
             "paragraphs": [],
             "paragraph_count": 0,
             "word_count": 0,
-            "line_count": 0,
         }
 
     # Collect every non-empty paragraph between the Abstract heading and the
-    # next front-page boundary (Practitioner Notes / Keywords / Citation) or the
-    # first body heading (e.g. Introduction). Style-agnostic so a Normal-styled
-    # abstract is still measured — the previous "Front Page Text"-only filter
-    # silently counted such abstracts as 0 words and never flagged length.
+    # next front-page boundary (Keywords / Citation) or the first body heading
+    # (e.g. Introduction). Style-agnostic so a Normal-styled abstract is still
+    # measured — the previous "Front Page Text"-only filter silently counted
+    # such abstracts as 0 words and never flagged length.
     abstract_paras = []
     for p in paragraphs:
         if p.index <= abstract_heading.index:
@@ -407,48 +415,55 @@ def extract_abstract(paragraphs: list[ParagraphRecord]) -> dict:
         abstract_paras.append(p)
 
     combined_text = "\n".join(p.text for p in abstract_paras)
-    wpl = CANONICAL_STRUCTURE["front_page"]["abstract_words_per_line_estimate"]
 
+    # APA-08 measures the abstract in words only (max 250). The JUTLP "fits
+    # lines 7-23 of the front page" rule and its line_count payload are gone
+    # with the rest of the JUTLP front matter (C-26).
     return {
         "found": True,
         "paragraphs": abstract_paras,
         "paragraph_count": len(abstract_paras),
         "word_count": word_count(combined_text),
-        "line_count": estimate_line_count(combined_text, wpl),
     }
 
 
-#exctract practitioner words
-def extract_practitioner_notes(paragraphs: list[ParagraphRecord]) -> list[ParagraphRecord]:
-    heading = find_first_paragraph(paragraphs, "Practitioner Notes")
-    if heading is None:
-        return []
-
-    notes = []
-    for p in paragraphs:
-        if p.index <= heading.index:
-            continue
-        if p.text == "Keywords":
-            break
-        if p.style == "Practitioner Notes" and not p.is_empty:
-            notes.append(p)
-
-    return notes
-
-
 ##extract and clean keyword list
+_KEYWORDS_INLINE_RE = re.compile(r"^\s*keywords?\s*[:\-–]\s*(.+)$", re.IGNORECASE)
+
+
 def extract_keywords(paragraphs: list[ParagraphRecord]) -> list[str]:
+    """Return the manuscript's keywords.
+
+    Accepts both APA layouts: an inline ``Keywords: a, b, c`` label and a
+    standalone ``Keywords`` heading followed by the list. The label itself is
+    stripped so it never counts as a keyword.
+    """
+    keyword_lines = []
+
+    # APA inline form: the label sits on the keywords paragraph itself, so a
+    # heading lookup would miss it entirely.
+    for p in paragraphs:
+        if p.is_empty:
+            continue
+        m = _KEYWORDS_INLINE_RE.match(p.text)
+        if m:
+            keyword_lines.append(m.group(1))
+    if keyword_lines:
+        parts = []
+        for line in keyword_lines:
+            parts.extend(x.strip() for x in line.split(","))
+        return [p for p in parts if p]
+
     heading = find_first_paragraph(paragraphs, "Keywords")
     if heading is None:
         return []
 
-    keyword_lines = []
     for p in paragraphs:
         if p.index <= heading.index:
             continue
-        if p.style == "Heading 1":
+        if p.style.startswith("Heading"):
             break
-        if p.text == "Introduction":
+        if p.text.strip().lower() in ("introduction", "method", "results"):
             break
         if not p.is_empty:
             keyword_lines.append(p.text)
@@ -477,7 +492,6 @@ def parse_docx_structure(docx_path: str) -> dict:
         "front_page": {
             **front_page_summary(paragraphs),
             "abstract": extract_abstract(paragraphs),
-            "practitioner_notes_count": len(extract_practitioner_notes(paragraphs)),
             "keywords": extract_keywords(paragraphs),
         },
         "main_sections": extract_main_sections(paragraphs),

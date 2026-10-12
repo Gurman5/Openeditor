@@ -4,7 +4,14 @@ from docx import Document as DocxDocument
 from docx.oxml.ns import qn as _qn
 
 from app.domain.apa7_template import APA7_STRUCTURE
-from app.services.apa7_formatting_checks import check_fonts
+from app.services.apa7_formatting_checks import (
+    check_abstract_format,
+    check_fonts,
+    check_keywords_format,
+    check_references_hanging_indent,
+    check_references_heading_format,
+    check_references_page_break,
+)
 from app.services.config import (
     APA7_DEFAULT_FONT,
     APA7_DEFAULT_FONT_SIZE_PT,
@@ -12,7 +19,6 @@ from app.services.config import (
     APA7_CAROUSEL_RETENTION_ENABLED,
 )
 from app.services.document_analysis_services import (
-    extract_practitioner_notes,
     get_front_page,
     get_section_bounds,
     load_paragraphs,
@@ -169,7 +175,6 @@ def check_front_page(parsed: dict) -> list[dict]:
         ("FP002", fp["authors_found"], "Authors block found", "Authors block not found"),
         ("FP003", fp["affiliations_found"], "Affiliations block found", "Affiliations not found"),
         ("FP004", fp["abstract_heading_found"], "Abstract heading found", "Abstract heading not found"),
-        ("FP005", fp["practitioner_notes_heading_found"], "Practitioner Notes found", "Practitioner Notes not found"),
         ("FP006", fp["keywords_heading_found"], "Keywords heading found", "Keywords heading not found"),
     ]
     return [
@@ -236,6 +241,11 @@ def validate(docx_path: str) -> dict:
     results += check_abstract(parsed)
     results += check_keywords(parsed)
     results += check_fonts(docx_path)
+    results += check_abstract_format(docx_path)
+    results += check_keywords_format(docx_path)
+    results += check_references_page_break(docx_path)
+    results += check_references_heading_format(docx_path)
+    results += check_references_hanging_indent(docx_path)
 
     # Ensure every result item contains matrix_id (C-20a)
     for res in results:

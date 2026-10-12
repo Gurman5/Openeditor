@@ -16,7 +16,7 @@ Design choices:
   apply pass anchors a comment at ``original`` with ``reason`` as the body.
 * **Hard cap of 6 flags per document.** When sorting by ``len(reason)``
   ascending we keep the most confident / least hedged calls first.
-* **Min paragraph length 80 chars.** Captions, labels, and Practitioner
+* **Min paragraph length 80 chars.** Captions, labels, and short
   Notes are already filtered by the shared zone helpers; this is a defensive
   belt-and-braces guard against false positives on short cells.
 * **De-dupe vs ``grammar_corrections``.** When a grammar correction already

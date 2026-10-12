@@ -28,7 +28,6 @@ SECTION_TEXT_ALIASES = {
     "acknowledgments": "acknowledgements",
     "references": "references",
     "abstract": "abstract",
-    "practitioner notes": "practitioner_notes",
     "keywords": "keywords",
     "citation": "citation",
 }
@@ -36,7 +35,6 @@ SECTION_TEXT_ALIASES = {
 CATEGORY_TO_SECTION_KEY = {
     "title_quality": "title",
     "abstract_quality": "abstract",
-    "practitioner_notes_quality": "practitioner_notes",
     "introduction_quality": "introduction",
     "literature_quality": "literature",
     "method_quality": "method",

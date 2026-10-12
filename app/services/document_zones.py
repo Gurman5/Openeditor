@@ -3,7 +3,7 @@
 A JUTLP paper has three distinct zones from the perspective of automated
 prose mutations:
 
-* ``front``    — title, authors, abstract, practitioner notes, keywords
+* ``front``    — title, authors, abstract, keywords
 * ``body``     — Introduction → Conclusion
 * ``outside``  — Acknowledgements, References, anything that follows
 
@@ -86,7 +86,7 @@ SKIP_STYLES: frozenset[str] = frozenset({
 
 # Wider skip-set for prose-development checks (e.g. "expand to 3 sentences").
 # These checks are only meaningful on real body prose, so they additionally
-# skip table cells, block quotes, practitioner notes, comment text, and
+# skip table cells, block quotes, comment text, and
 # guidance/front-page text — none of which are paragraphs that should be
 # expanded for readability. Kept distinct from SKIP_STYLES because the
 # spelling/decimal/number-word passes legitimately edit some of these styles
@@ -95,7 +95,6 @@ PROSE_DEV_SKIP_STYLES: frozenset[str] = SKIP_STYLES | frozenset({
     # Friendly names (with spaces) as Word normally surfaces them.
     "Heading Front Page",
     "Front Page Text",
-    "Practitioner Notes",
     "Table Text",
     "Table Emphasis",
     "Quote",
@@ -106,11 +105,10 @@ PROSE_DEV_SKIP_STYLES: frozenset[str] = SKIP_STYLES | frozenset({
     "Title",
     "Subtitle",
     # Style IDs (no spaces) — Word stores these in <w:pStyle w:val=...>
-    # so the same paragraph reads as "PractitionerNotes" not "Practitioner
+    # so the same paragraph reads as one name rather than a truncated one
     # Notes" when you inspect the XML. Cover both spellings.
     "HeadingFrontPage",
     "FrontPageText",
-    "PractitionerNotes",
     "TableText",
     "TableEmphasis",
     "GuidanceNotes",
