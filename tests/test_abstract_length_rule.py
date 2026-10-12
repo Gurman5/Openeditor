@@ -1,24 +1,24 @@
-"""Tests for the JUTLP abstract length rule: the abstract must fit lines 7–23
-of the front page (max 17 lines) AND be at most 250 words."""
+"""APA-08 abstract length rule: at most 250 words.
+
+The JUTLP companion rule — "the abstract must fit lines 7-23 of the front
+page (max 17 lines)" — was removed with the rest of the JUTLP front matter in
+C-26. This file now covers the APA rule alone; the absence of the line-region
+constants and the ``line_count`` payload is asserted explicitly so the rule
+cannot creep back in unnoticed.
+"""
 
 from docx import Document
 
 from app.domain.canonical_jultp_template import CANONICAL_STRUCTURE
-from app.services.document_analysis_services import (
-    estimate_line_count,
-    extract_abstract,
-    load_paragraphs,
-)
+from app.services.document_analysis_services import extract_abstract, load_paragraphs
 from app.services.jutlp_validator import check_abstract
 from app.services.output_generation_samfix import abstractFormatCheck, abstractFound
 
 _FRONT = CANONICAL_STRUCTURE["front_page"]
 
 
-def _parsed(found=True, word_count=0, line_count=0):
-    return {"front_page": {"abstract": {
-        "found": found, "word_count": word_count, "line_count": line_count,
-    }}}
+def _parsed(found=True, word_count=0):
+    return {"front_page": {"abstract": {"found": found, "word_count": word_count}}}
 
 
 def _fp008(results):
@@ -29,47 +29,52 @@ def _fp008(results):
 
 def test_rule_constants_match_template():
     assert _FRONT["abstract_max_words"] == 250
-    assert _FRONT["abstract_line_region"] == [7, 23]
-    # lines 7–23 inclusive == 17 lines
-    assert _FRONT["abstract_max_lines"] == 23 - 7 + 1 == 17
 
 
-# ── line estimator ───────────────────────────────────────────────────────────
+def test_line_region_constants_are_gone():
+    """C-26 removed the JUTLP front-page line region. These keys must not
+    return — a consumer reading them would crash or silently mis-report."""
+    assert "abstract_line_region" not in _FRONT
+    assert "abstract_max_lines" not in _FRONT
+    assert "abstract_words_per_line_estimate" not in _FRONT
 
-def test_estimate_line_count_uses_words_and_hard_breaks():
-    wpl = _FRONT["abstract_words_per_line_estimate"]
-    assert estimate_line_count("", wpl) == 0
-    # 250 words at the template estimate ≈ the 17-line limit
-    assert estimate_line_count(" ".join(["w"] * 250), wpl) == 17
-    # hard line breaks dominate when text is padded with manual breaks
-    assert estimate_line_count("a\n" * 19 + "a", wpl) == 20
+
+def test_practitioner_notes_keys_are_gone():
+    """C-26 removed Practitioner Notes (APA-20)."""
+    for key in (
+        "practitioner_notes_heading",
+        "practitioner_notes_style",
+        "practitioner_notes_count",
+    ):
+        assert key not in _FRONT, f"{key} should have been removed"
 
 
 # ── validator FP008 ──────────────────────────────────────────────────────────
 
-def test_abstract_within_limits_passes():
-    r = _fp008(check_abstract(_parsed(word_count=200, line_count=14)))
+def test_abstract_within_limit_passes():
+    r = _fp008(check_abstract(_parsed(word_count=200)))
     assert r["status"] == "pass"
 
 
 def test_abstract_at_the_limit_passes():
-    r = _fp008(check_abstract(_parsed(word_count=250, line_count=17)))
+    r = _fp008(check_abstract(_parsed(word_count=250)))
     assert r["status"] == "pass"
 
 
 def test_abstract_over_word_limit_fails():
-    r = _fp008(check_abstract(_parsed(word_count=300, line_count=20)))
+    r = _fp008(check_abstract(_parsed(word_count=300)))
     assert r["status"] == "fail"
     assert "300 words" in r["message"]
     assert "250" in r["message"]
 
 
-def test_abstract_over_line_limit_under_word_limit_fails():
-    # 200 words but spread over many lines (manual breaks) — within the word
-    # limit yet overflowing the lines 7–23 region.
-    r = _fp008(check_abstract(_parsed(word_count=200, line_count=21)))
-    assert r["status"] == "fail"
-    assert "lines 7" in r["message"] or "7–23" in r["message"]
+def test_long_abstract_with_hard_breaks_is_measured_in_words_only():
+    """Regression guard for the retired line-region rule: a short abstract
+    padded with manual line breaks is within the APA word limit and must pass.
+    Under the old JUTLP rule this failed on estimated line count alone."""
+    r = _fp008(check_abstract(_parsed(word_count=120)))
+    assert r["status"] == "pass"
+    assert "line" not in r["message"].lower()
 
 
 def test_abstract_not_found_fails():
@@ -95,7 +100,17 @@ def test_normal_styled_abstract_is_measured(tmp_path):
     assert ab["found"] is True
     assert ab["paragraph_count"] == 1          # keyword line excluded
     assert ab["word_count"] == 260             # over the 250 limit
-    assert ab["line_count"] > _FRONT["abstract_max_lines"]
+
+
+def test_extract_abstract_no_longer_returns_line_count(tmp_path):
+    doc = Document()
+    doc.add_paragraph("Abstract", style="Heading 1")
+    doc.add_paragraph("Short abstract sentence.", style="Normal")
+    path = tmp_path / "doc.docx"
+    doc.save(str(path))
+
+    ab = extract_abstract(load_paragraphs(str(path)))
+    assert "line_count" not in ab
 
 
 def test_abstract_stops_at_introduction_heading(tmp_path):
@@ -143,3 +158,43 @@ def test_abstract_length_comment_is_a_standalone_comment(tmp_path):
     assert "Abstract merged" not in msg
     assert "Tracked style change" not in msg
     assert "250 words" in msg
+
+
+def test_length_comment_has_no_line_region_wording(tmp_path):
+    path = _long_abstract_doc(tmp_path)
+    plan = abstractFormatCheck(path, abstractFound(path))
+    msg = " ".join(c["message"] for c in plan.get("comments", []))
+    assert "lines 7" not in msg
+    assert "7 to 23" not in msg
+    assert "JUTLP" not in msg
+
+
+# ── Practitioner Notes must not be required or emitted ──────────────────────
+
+def test_abstract_plan_never_schedules_a_practitioner_stub(tmp_path):
+    """A manuscript with no Practitioner Notes must produce no stub request —
+    that requirement (FP005/FP009/FP012) was deleted in C-26."""
+    doc = Document()
+    doc.add_paragraph("Abstract", style="Heading 1")
+    doc.add_paragraph("A short abstract.", style="Normal")
+    doc.add_paragraph("Keywords", style="Heading 1")
+    doc.add_paragraph("Introduction", style="Heading 1")
+    path = tmp_path / "doc.docx"
+    doc.save(str(path))
+
+    plan = abstractFormatCheck(str(path), abstractFound(str(path)))
+    blob = repr(plan)
+    assert "practitioner" not in blob.lower()
+
+
+def test_front_page_summary_has_no_practitioner_keys(tmp_path):
+    from app.services.document_analysis_services import front_page_summary
+
+    doc = Document()
+    doc.add_paragraph("Abstract", style="Heading 1")
+    path = tmp_path / "doc.docx"
+    doc.save(str(path))
+
+    summary = front_page_summary(load_paragraphs(str(path)))
+    assert "practitioner_notes_heading_found" not in summary
+    assert "practitioner_notes_count" not in summary

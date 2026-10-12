@@ -170,13 +170,15 @@ class TestUserPrompt:
 
         assert "investigates the impact of teaching methods" in user
 
-    def test_practitioner_notes_numbered(self):
+    def test_practitioner_notes_are_not_sent(self):
+        # C-26 removed Practitioner Notes (APA-20): the prompt must not carry
+        # a PN block even when the manuscript still has one.
         paragraphs = _make_paragraphs()
         parsed = _make_parsed_structure()
         _, user = build_prompts(paragraphs, parsed)
 
-        assert "1. Note one about practice." in user
-        assert "2. Note two about practice." in user
+        assert "Practitioner Notes" not in user
+        assert "Note one about practice." not in user
 
     def test_contains_sections(self):
         paragraphs = _make_paragraphs()

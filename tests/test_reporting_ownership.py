@@ -38,8 +38,11 @@ class TestSamFixedIdsAreReal:
         # every filtered id is a rule the validator *can* emit. Track C
         # spans two validators (JUTLP families + the APA0xx formatting
         # checks), so scan both sources.
+        # Explicit encoding: Python source is UTF-8 (PEP 3120) and these
+        # files may contain non-ASCII characters, which a platform-default
+        # (cp1252 on Windows) read would fail on.
         sources = "\n".join(
-            open(p).read() for p in (
+            open(p, encoding="utf-8").read() for p in (
                 "app/services/jutlp_validator.py",
                 "app/services/apa7_validator.py",
                 "app/services/apa7_formatting_checks.py",
