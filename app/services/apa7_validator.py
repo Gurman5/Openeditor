@@ -21,7 +21,7 @@ from app.services.document_analysis_services import (
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _WQ = f"{{{_W}}}"
 
-    
+
 def _result(rule_id: str, status: str, message: str) -> dict:
     return {"rule_id": rule_id, "status": status, "message": message}
 
@@ -234,5 +234,10 @@ def validate(docx_path: str) -> dict:
     results += check_front_page(parsed)
     results += check_abstract(parsed)
     results += check_keywords(parsed)
+
+    # Ensure every result item contains matrix_id (C-20a)
+    for res in results:
+        if isinstance(res, dict) and "matrix_id" not in res:
+            res["matrix_id"] = res.get("rule_id", "APA7-GENERIC")
 
     return build_report(results)
