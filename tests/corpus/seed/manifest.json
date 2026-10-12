@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "documents": [
+    {
+      "id": "seed-01",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
+      "mode": "student",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "Known-good APA 7 student sample paper."
+    },
+    {
+      "id": "seed-02",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
+      "mode": "professional",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "Known-good APA 7 professional sample paper."
+    },
+    {
+      "id": "seed-03",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
+      "mode": "student",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "APA 7 student-format baseline document."
+    },
+    {
+      "id": "seed-04",
+      "source_url": "REAL URL",
+      "license": "REAL LICENSE OR SOURCE STATUS",
+      "license_status": "unknown",
+      "mode": "professional",
+      "consent_ref": "",
+      "defects_injected": [],
+      "verdicts": {},
+      "notes": "APA 7 professional-format baseline document."
+    }
+  ]
+}
