@@ -15,15 +15,15 @@ document.addEventListener('alpine:init', () => {
     elapsedTimer: null,
     pollHandle: null,
     carouselEnabled: CAROUSEL_ENABLED,
-    jutlpArticles: [{
+    carouselArticles: [{
       title: 'The Artificial Intelligence Assessment Scale (AIAS): A Framework for Ethical Integration of Generative AI in Educational Assessment',
       author: 'Mike Perkins, Leon Furze, Jasper Roe, Jason MacVaugh',
-      abstract: 'This JUTLP article introduces the AI Assessment Scale as a practical framework for deciding when and how generative AI can be used in educational assessment.',
+      abstract: 'This article introduces the AI Assessment Scale as a practical framework for deciding when and how generative AI can be used in educational assessment.',
       url: 'https://open-publishing.org/journals/index.php/jutlp/article/view/810/769'
     }],
     carouselDegraded: false,
-    jutlpArticleIndex: 0,
-    jutlpRotateTimer: null,
+    carouselIndex: 0,
+    rotateTimer: null,
     showCancelConfirm: false,
     showLeaveConfirm: false,
     hasDownloaded: false,
@@ -222,14 +222,14 @@ document.addEventListener('alpine:init', () => {
         this.elapsedSeconds++;
       }, 1000);
 
-      this.fetchJutlpArticles().then(() => this.startJutlpRotation());
+      this.fetchArticles().then(() => this.startRotation());
 
       try {
         const { session_id } = await uploadManuscript(this.selectedFile);
         this.sessionId = session_id;
       } catch (err) {
         clearInterval(this.elapsedTimer);
-        this.stopJutlpRotation();
+        this.stopRotation();
         this.uploadError = err.message || 'Upload failed. Please try again.';
         this.fileError = this.uploadError;
         this.currentPhase = 'upload';
@@ -246,13 +246,13 @@ document.addEventListener('alpine:init', () => {
       this.pollHandle.promise
         .then((resultsPayload) => {
           clearInterval(this.elapsedTimer);
-          this.stopJutlpRotation();
+          this.stopRotation();
           this.resultsPayload = resultsPayload;
           this.currentPhase = 'results';
         })
         .catch((err) => {
           clearInterval(this.elapsedTimer);
-          this.stopJutlpRotation();
+          this.stopRotation();
           if (err.errorCode === 'CANCELLED') {
             this.currentPhase = 'cancelled';
           } else if (err.errorCode === 'TIMEOUT') {
@@ -281,7 +281,7 @@ document.addEventListener('alpine:init', () => {
         }
       }
       if (this.elapsedTimer) clearInterval(this.elapsedTimer);
-      this.stopJutlpRotation();
+      this.stopRotation();
       this.selectedFile = null;
       const input = document.getElementById('file-input');
       if (input) input.value = '';
@@ -322,38 +322,38 @@ document.addEventListener('alpine:init', () => {
     },
 
     get currentArticle() {
-      return this.jutlpArticles[this.jutlpArticleIndex];
+      return this.carouselArticles[this.carouselIndex];
     },
 
-     async fetchJutlpArticles() {
+     async fetchArticles() {
       const { articles, degraded } = await fetchCarouselArticles();
       this.carouselDegraded = degraded;
       if (articles.length) {
-        this.jutlpArticles = articles;
-        this.jutlpArticleIndex = 0;
+        this.carouselArticles = articles;
+        this.carouselIndex = 0;
       }
     },
 
-    nextJutlpArticle() {
-      if (this.jutlpArticles.length <= 1) return;
-      let nextIndex = Math.floor(Math.random() * this.jutlpArticles.length);
-      if (nextIndex === this.jutlpArticleIndex) {
-        nextIndex = (nextIndex + 1) % this.jutlpArticles.length;
+    nextArticle() {
+      if (this.carouselArticles.length <= 1) return;
+      let nextIndex = Math.floor(Math.random() * this.carouselArticles.length);
+      if (nextIndex === this.carouselIndex) {
+        nextIndex = (nextIndex + 1) % this.carouselArticles.length;
       }
-      this.jutlpArticleIndex = nextIndex;
+      this.carouselIndex = nextIndex;
     },
 
-    startJutlpRotation() {
-      this.stopJutlpRotation();
-      if (this.jutlpArticles.length > 1) {
-        this.jutlpRotateTimer = setInterval(() => this.nextJutlpArticle(), 150000);
+    startRotation() {
+      this.stopRotation();
+      if (this.carouselArticles.length > 1) {
+        this.rotateTimer = setInterval(() => this.nextArticle(), 150000);
       }
     },
 
-    stopJutlpRotation() {
-      if (this.jutlpRotateTimer) {
-        clearInterval(this.jutlpRotateTimer);
-        this.jutlpRotateTimer = null;
+    stopRotation() {
+      if (this.rotateTimer) {
+        clearInterval(this.rotateTimer);
+        this.rotateTimer = null;
       }
     },
 

@@ -580,11 +580,11 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
-@app.get("/api/jutlp-articles")
+@app.get("/api/articles")
 @limiter.limit("30 per hour")
-def jutlp_articles_api():
+def articles_api():
     """
-    Return a small rotating feed of published JUTLP articles.
+    Return a small rotating feed of published articles.
     ---
     tags:
       - Results

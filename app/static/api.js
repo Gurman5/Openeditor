@@ -165,7 +165,7 @@ export async function cancelJob(sessionId) {
 export async function fetchCarouselArticles(limit = 10) {
   if (!CAROUSEL_ENABLED) return { articles: [], degraded: false };
   try {
-    const response = await fetch(`/api/jutlp-articles?limit=${limit}`);
+    const response = await fetch(`/api/articles?limit=${limit}`);
     const payload = await response.json();
     return {
       articles: payload.articles || [],
