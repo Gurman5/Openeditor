@@ -49,18 +49,21 @@ document.addEventListener('alpine:init', () => {
     get manualReviewGroups() {
       const map = new Map();
       for (const item of this.manualReviewItems) {
-        const label = this._manualReviewCategory(item.rule_id);
+        const label = this._manualReviewCategory(item);
         if (!map.has(label)) map.set(label, []);
         map.get(label).push(item);
       }
       return [...map.entries()].map(([label, items]) => ({ label, count: items.length, items }));
     },
 
-    _manualReviewCategory(ruleId) {
+    _manualReviewCategory(item) {
+      const ruleId = typeof item === 'string' ? item : (item.rule_id || '');
+      const matrixId = typeof item === 'object' && item !== null ? (item.matrix_id || '') : '';
+
       if (/^(CREF|HREF|DOIT|CONS|REF)/.test(ruleId)) return 'References and citations';
-      if (/^(SEC|MET|DIS|CON|SPE|FIG|TAB)/.test(ruleId)) return 'Structure';
-      if (/^(FP|AFF)/.test(ruleId)) return 'Front page';
-      if (/^STY/.test(ruleId)) return 'Style';
+      if (/^APA-(0[0-5]|08|09|10)$/.test(matrixId) || /^(SEC|MET|DIS|CON|SPE|FIG|TAB)/.test(ruleId)) return 'Structure';
+      if (/^APA-(0[67])$/.test(matrixId) || /^(FP|AFF)/.test(ruleId)) return 'Front page';
+      if (/^APA-(1[1-3])$/.test(matrixId) || /^STY/.test(ruleId)) return 'Style';
       if (/^LLM/.test(ruleId)) return 'Editorial';
       if (/^SAM/.test(ruleId)) return 'Front page';
       return 'Other';

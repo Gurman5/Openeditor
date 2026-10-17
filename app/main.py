@@ -29,6 +29,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from app.domain.apa7_matrix import MATRIX_ID_MAP
 from app.pipelines.feedback_gen_pipeline import doc_analysis_pipeline
 from app.domain.reporting_ownership import is_sam_fixed
 from app.services.access_validation import check_access
@@ -1128,17 +1129,38 @@ def results(session_id):
 
     # Sam's issues are built after dedup, but we need counts — compute after issues list is final.
     # Placeholder zeros here; updated below after sam_issues are deduped.
+
+    
+    # Categories derived from APA-7 matrix IDs
     categories = {
-        "Structure": (
-            _det(("fail",),         "SEC", "MET", "DIS")
-            + _det(("fail", "warn"), "SPE", "CON")
-            + _det(("fail",),        "FIG", "TAB")
+        "Structure": sum(
+            1 for r in det_results
+            if r["status"] in ("fail",)
+            and not is_sam_fixed(r["rule_id"])
+            and r["rule_id"] not in fp_overrides
+            and r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")) in {
+                "APA-00", "APA-01", "APA-02", "APA-03", "APA-04", 
+                "APA-05", "APA-08", "APA-09", "APA-10"
+            }
         ),
-        "Front Page": (
-            _det(("fail", "warn"), "FP")
-            + _det(("fail",),       "AFF")
+        "Front Page": sum(
+            1 for r in det_results
+            if r["status"] in ("fail", "warn")
+            and not is_sam_fixed(r["rule_id"])
+            and r["rule_id"] not in fp_overrides
+            and r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")) in {
+                "APA-06", "APA-07"
+            }
         ),
-        "Style":      _det(("fail", "warn"), "STY"),
+        "Style": sum(
+            1 for r in det_results
+            if r["status"] in ("fail", "warn")
+            and not is_sam_fixed(r["rule_id"])
+            and r["rule_id"] not in fp_overrides
+            and r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")) in {
+                "APA-11", "APA-12", "APA-13"
+            }
+        ),
         "References": sum(
             1 for r in ref_results
             if r["status"] in ("fail", "warn")
@@ -1175,9 +1197,9 @@ def results(session_id):
                 "status": "fail", "source": "validator",
             })
         elif r["status"] == "warn" and (
-            r["rule_id"].startswith("SPE")
-            or r["rule_id"].startswith("STY")
-            or r["rule_id"].startswith("FP01")
+            r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")) in {
+                "APA-07", "APA-11", "APA-12", "APA-13"
+            }
             or r["rule_id"] in ("CON001",)
         ):
             issues.append({
