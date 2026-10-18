@@ -1195,6 +1195,7 @@ def results(session_id):
             issues.append({
                 "rule_id": r["rule_id"], "message": r["message"],
                 "status": "fail", "source": "validator",
+                "matrix_id": r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")),
             })
         elif r["status"] == "warn" and (
             r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")) in {
@@ -1205,6 +1206,7 @@ def results(session_id):
             issues.append({
                 "rule_id": r["rule_id"], "message": r["message"],
                 "status": "warn", "source": "validator",
+                "matrix_id": r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")),
             })
 
     for r in ref_results:
@@ -1217,6 +1219,7 @@ def results(session_id):
             issues.append({
                 "rule_id": r["rule_id"], "message": r["message"],
                 "status": "fail", "source": "refs",
+                "matrix_id": r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")),
             })
         elif (r["status"] == "warn"
               and r["rule_id"].startswith("REFE")
@@ -1224,6 +1227,7 @@ def results(session_id):
             issues.append({
                 "rule_id": r["rule_id"], "message": r["message"],
                 "status": "warn", "source": "refs",
+                "matrix_id": r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")),
             })
 
     for r in llm_mapped:
