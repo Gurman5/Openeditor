@@ -20,6 +20,7 @@ from copy import deepcopy
 from docx import Document as DocxDocument
 from lxml import etree
 
+from app.services import dev_trace
 from app.services.document_analysis_services import (
     _is_main_section_heading,
     _text_matches_main_section,
@@ -1237,7 +1238,17 @@ def _dedupe_pending_comments(pending_comments: list[dict]) -> list[dict]:
             continue
         seen.add(key)
         deduped.append(item)
+    _trace_dedup(
+        before=len(pending_comments), after=len(deduped),
+        dropped=len(pending_comments) - len(deduped),
+    )
     return deduped
+
+
+def _trace_dedup(**fields) -> None:
+    tr = dev_trace.current_trace()
+    if tr is not None:
+        tr.add_event("dedup_comments", **fields)
 
 
 def _comment_group_key(item: dict) -> str | None:

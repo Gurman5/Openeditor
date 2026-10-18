@@ -1,11 +1,11 @@
 import html
 import json
+import logging
 import os
 import re
 import time
 import unicodedata
 import zipfile
-import logging
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -13,6 +13,7 @@ import requests
 from lxml import etree
 
 from app.domain.apa7_template import strip_leading_section_number
+from app.services import dev_trace
 from app.services.ai.llm_client import LLMError, call_llm_json
 from app.services.document_analysis_services import extract_main_sections, load_paragraphs
 from app.services.reference_reconstructor import (
@@ -21,6 +22,14 @@ from app.services.reference_reconstructor import (
 from app.services.reference_type_checker import check_reference_type_style, classify_reference
 
 log = logging.getLogger(__name__)
+
+
+def _trace_api(**fields) -> None:
+    """Record an external API call on the ambient dev trace (no-op without one)."""
+    tr = dev_trace.current_trace()
+    if tr is not None:
+        tr.api_call(**fields)
+
 # ── Disk cache for CrossRef API responses ────────────────────────────────────
 # Enabled by default; set CROSSREF_CACHE=0 to disable (e.g. in production).
 # Cache file lives next to this file so it's easy to find and delete.
@@ -592,7 +601,15 @@ def _query_crossref(reference_text: str) -> dict | None:
     cache_key = f"search:{reference_text}"
     cached = _cache_get(cache_key)
     if cached is not None:
+        _trace_api(
+            provider="crossref",
+            url=CROSSREF_API,
+            cache_hit=True,
+            status="cached",
+            detail={"query": reference_text[:120]},
+        )
         return cached if cached != "__none__" else None
+    t0 = time.perf_counter()
     try:
         resp = requests.get(
             CROSSREF_API,
@@ -606,8 +623,24 @@ def _query_crossref(reference_text: str) -> dict | None:
         # A real "no results" (HTTP 200, empty list) is safe to cache. A
         # network/timeout failure returns below WITHOUT caching.
         _cache_set(cache_key, result if result is not None else "__none__")
+        _trace_api(
+            provider="crossref",
+            url=CROSSREF_API,
+            status=resp.status_code,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+            cache_hit=False,
+            detail={"query": reference_text[:120], "found": result is not None},
+        )
         return result
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        _trace_api(
+            provider="crossref",
+            url=CROSSREF_API,
+            status="error",
+            latency_ms=(time.perf_counter() - t0) * 1000,
+            cache_hit=False,
+            detail={"query": reference_text[:120], "error": str(exc)[:200]},
+        )
         return None
 
 
@@ -622,7 +655,14 @@ def _get_apa_via_content_negotiation(doi: str) -> str | None:
     cache_key = f"cn:{doi}"
     cached = _cache_get(cache_key)
     if cached is not None:
+        _trace_api(
+            provider="crossref-cn",
+            url=f"https://doi.org/{doi}",
+            cache_hit=True,
+            status="cached",
+        )
         return cached if cached != "__none__" else None
+    t0 = time.perf_counter()
     try:
         resp = requests.get(
             f"https://doi.org/{doi}",
@@ -633,9 +673,24 @@ def _get_apa_via_content_negotiation(doi: str) -> str | None:
         if resp.status_code == 404:
             # Genuine "no such DOI" — safe to cache permanently.
             _cache_set(cache_key, "__none__")
+            _trace_api(
+                provider="crossref-cn",
+                url=f"https://doi.org/{doi}",
+                status=404,
+                latency_ms=(time.perf_counter() - t0) * 1000,
+                cache_hit=False,
+            )
             return None
         if resp.status_code != 200:
             # 5xx / 429 / other — transient or rate-limit; do not cache.
+            _trace_api(
+                provider="crossref-cn",
+                url=f"https://doi.org/{doi}",
+                status=resp.status_code,
+                latency_ms=(time.perf_counter() - t0) * 1000,
+                cache_hit=False,
+                detail={"not_cached": "transient/rate-limit"},
+            )
             return None
         # CrossRef CN responses are UTF-8 but the Content-Type header often
         # omits the charset, causing requests to default to ISO-8859-1 and
@@ -646,8 +701,23 @@ def _get_apa_via_content_negotiation(doi: str) -> str | None:
         # Ensure a space separates the trailing period from the URL.
         text = re.sub(r'\.(\s*)(https?://)', r'. \2', text)
         _cache_set(cache_key, text)
+        _trace_api(
+            provider="crossref-cn",
+            url=f"https://doi.org/{doi}",
+            status=200,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+            cache_hit=False,
+        )
         return text
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        _trace_api(
+            provider="crossref-cn",
+            url=f"https://doi.org/{doi}",
+            status="error",
+            latency_ms=(time.perf_counter() - t0) * 1000,
+            cache_hit=False,
+            detail={"error": str(exc)[:200]},
+        )
         return None
 
 

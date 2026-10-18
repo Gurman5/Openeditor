@@ -1,4 +1,3 @@
-from cmath import log
 import hmac
 import os
 import re
@@ -9,12 +8,14 @@ import threading
 import time
 import uuid
 import zipfile
-from app.services.session_manager import prune_expired_sessions
+from cmath import log
 from datetime import timedelta
 from urllib.parse import urljoin, urlparse
+
 from flasgger import Swagger
 from flask import (
     Flask,
+    after_this_request,
     jsonify,
     redirect,
     render_template,
@@ -22,7 +23,6 @@ from flask import (
     send_file,
     session,
     url_for,
-    after_this_request
 )
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -30,8 +30,9 @@ from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.domain.apa7_matrix import MATRIX_ID_MAP
-from app.pipelines.feedback_gen_pipeline import doc_analysis_pipeline
 from app.domain.reporting_ownership import is_sam_fixed
+from app.pipelines.feedback_gen_pipeline import doc_analysis_pipeline
+from app.services import dev_trace
 from app.services.access_validation import check_access
 from app.services.acronym_store import (
     add_acronym,
@@ -52,6 +53,7 @@ from app.services.output_generation_samfix import (
     build_keywords_check_plan,
     build_title_check_plan,
 )
+from app.services.session_manager import prune_expired_sessions
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -275,6 +277,8 @@ swagger = Swagger(
 )
 
 _sessions: dict = {}
+# Live dev-trace recorders per session (D-TR), for /api/trace before finish.
+_active_traces: dict = {}
 
 
 _file_ttl_seconds = int(os.environ.get("FILE_TTL_SECONDS", str(24 * 60 * 60)))  # 24h default
@@ -528,7 +532,7 @@ def _build_changes_made(pipeline_result: dict) -> dict:
     # ── Structure and front page ──────────────────────────────────────────
     structure = (
         _count_sam_changes(pipeline_result.get("sam_result"))
-        + len(pipeline_result.get("heading_corrections") or [])   
+        + len(pipeline_result.get("heading_corrections") or [])
         + len(pipeline_result.get("caption_apa7_actions") or [])
         + len(pipeline_result.get("table_n_actions") or [])
         + len(pipeline_result.get("table_section_boundary_actions") or [])
@@ -866,13 +870,21 @@ def upload():
         "progress": 0,
         "stage": "starting",
         "filename": file.filename,
-        "file_size": file_size,  
+        "file_size": file_size,
         "output_filename": output_filename,
         "cancel_requested": False,
         "tmp_dir": tmp_dir,
         "created_at": time.time(),
         "word_count": total_words,
     }
+
+    # Dev-trace recorder (D-TR): enables the stage/LLM/API/Word-gate timeline
+    # for this session when PIPELINE_TRACE is set. None = tracing fully off.
+    trace = None
+    if dev_trace.is_enabled():
+        trace = dev_trace.TraceRecorder(session_id, tmp_dir)
+        _sessions[session_id]["trace_dir"] = str(trace.trace_dir)
+        _active_traces[session_id] = trace
 
     def _run():
         start = time.monotonic()
@@ -902,11 +914,16 @@ def upload():
         outcome: dict = {}
 
         def _pipeline():
+            if trace is not None:
+                # Ambient recorder for the worker thread: deep services
+                # (llm_client, reference_checker) look this up directly.
+                dev_trace.set_ambient(trace)
             try:
                 outcome["result"] = doc_analysis_pipeline(
                     input_path,
                     output_path=output_path,
                     progress_callback=_update_progress,
+                    trace=trace,
                 )
             except ProcessingTimeout:
                 outcome["timeout"] = True
@@ -915,7 +932,16 @@ def upload():
             except Exception as exc:  # noqa: BLE001
                 outcome["error"] = exc
 
+        if trace is not None:
+            trace.add_event("run_start", input_file=file.filename)
         _pipeline()
+        if trace is not None:
+            trace.finish(
+                {
+                    "status": next(iter(outcome.keys()), "done"),
+                    "error": str(outcome.get("error")) if "error" in outcome else None,
+                }
+            )
 
         if "timeout" in outcome:
             _sessions[session_id].update({
@@ -1035,6 +1061,54 @@ def cancel_analysis(session_id):
     return jsonify({"status": session.get("status", "unknown")})
 
 
+@app.get("/api/trace/<session_id>")
+@limiter.limit("600 per hour")
+def dev_trace_endpoint(session_id):
+    """Developer-debug pipeline trace for a session (D-TR).
+
+    Returns the live event timeline: stage starts/ends with timing and edit
+    counts, LLM call summaries (full prompts/responses on disk under the
+    session trace dir), external API calls, dedup counts and OOXML/Word-gate
+    results. 404 when the session is unknown; 409 while a trace dir has not
+    been created for it (tracing disabled for the session).
+    """
+    if not dev_trace.is_enabled():
+        return jsonify({"error": "dev tracing disabled"}), 409
+
+    sess = _sessions.get(session_id)
+    if not sess:
+        return jsonify({"error": "Session not found"}), 404
+
+    trace_dir = sess.get("trace_dir")
+    if not trace_dir or not os.path.isdir(trace_dir):
+        return jsonify({"error": "no trace for this session"}), 409
+
+    payload_path = os.path.join(trace_dir, "trace_index.json")
+    if os.path.isfile(payload_path):
+        try:
+            import json as _json
+
+            with open(payload_path, encoding="utf-8") as fh:
+                payload = _json.load(fh)
+            if sess.get("status") == "processing":
+                payload["still_processing"] = True
+            return jsonify(payload)
+        except (OSError, ValueError) as exc:
+            return jsonify({"error": f"trace unreadable: {exc}"}), 500
+
+    # Live-but-unfinished run: build the index from the in-memory recorder if
+    # the process is still the one that ran the pipeline.
+    recorder = _active_traces.get(session_id)
+    if recorder is None:
+        return jsonify({
+            "session_id": session_id,
+            "trace_dir": trace_dir,
+            "events": [],
+            "note": "index not yet written; check trace_index.json after finish",
+        })
+    return jsonify(recorder.index_payload())
+
+
 @app.get("/api/results/<session_id>")
 @limiter.limit("600 per hour")
 def results(session_id):
@@ -1130,7 +1204,7 @@ def results(session_id):
     # Sam's issues are built after dedup, but we need counts — compute after issues list is final.
     # Placeholder zeros here; updated below after sam_issues are deduped.
 
-    
+
     # Categories derived from APA-7 matrix IDs
     categories = {
         "Structure": sum(
@@ -1139,7 +1213,7 @@ def results(session_id):
             and not is_sam_fixed(r["rule_id"])
             and r["rule_id"] not in fp_overrides
             and r.get("matrix_id", MATRIX_ID_MAP.get(r["rule_id"], "")) in {
-                "APA-00", "APA-01", "APA-02", "APA-03", "APA-04", 
+                "APA-00", "APA-01", "APA-02", "APA-03", "APA-04",
                 "APA-05", "APA-08", "APA-09", "APA-10"
             }
         ),
@@ -1422,7 +1496,7 @@ def download(session_id):
     if not download_name:
         original_name = session.get("filename", "document.docx")
         download_name = original_name.replace(".docx", "_reviewed.docx")
-        
+
     return send_file(
         session["output_path"],
         as_attachment=True,

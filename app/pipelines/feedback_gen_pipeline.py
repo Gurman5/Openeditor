@@ -11,17 +11,20 @@ from typing import Callable
 
 from lxml import etree
 
+from app.domain.reporting_ownership import SAM_FIXED_RULE_IDS
+from app.services import dev_trace
 from app.services.abbreviation_corrections import apply_abbreviation_corrections
 from app.services.acronym_corrections import apply_acronym_corrections
 from app.services.ai.editorial_review_service import run_editorial_review
+from app.services.apa7_validator import validate
 from app.services.appendix_removal import apply_appendix_removal
 from app.services.blinded_citation_comments import apply_blinded_citation_comments
 from app.services.caption_apa7_check import apply_caption_apa7_comments
 from app.services.decimal_corrections import apply_decimal_corrections
+from app.services.dev import word_gate as dev_word_gate
 from app.services.document_normalisation_services import normalise_docx
 from app.services.grammar_corrections import apply_contingent_grammar_comments
 from app.services.heading_corrections import apply_heading_corrections
-from app.services.apa7_validator import validate
 from app.services.language_corrections import AUTHOR, DATE, apply_au_spelling_corrections
 from app.services.number_word_corrections import apply_number_word_corrections
 from app.services.output_generation import (
@@ -47,8 +50,6 @@ from app.services.table_keep_together import apply_table_keep_together
 from app.services.table_n_notation_comments import apply_table_n_notation_comments
 from app.services.table_page_breaks import apply_table_page_breaks
 from app.services.table_section_boundary_comments import apply_table_section_boundary_comments
-
-from app.domain.reporting_ownership import SAM_FIXED_RULE_IDS
 
 log = logging.getLogger(__name__)
 
@@ -658,7 +659,10 @@ def doc_analysis_pipeline(
     path_to_doc: str | Path,
     output_path: str | Path | None = None,
     progress_callback: Callable[[int, str], None] | None = None,
+    trace: dev_trace.TraceRecorder | None = None,
 ) -> dict:
+    stage = dev_trace.stage_fn(trace)
+    snap = trace.snapshot if trace is not None else (lambda path, label: None)
     last_progress = 0
 
     def _progress(pct: int, stage: str) -> None:
@@ -696,9 +700,11 @@ def doc_analysis_pipeline(
     os.close(working_fd)
     try:
         try:
-            _progress(8, "structure")
-            normalisation_report = normalise_docx(original_docx_path, working_path)
-            docx_path = working_path
+            with stage("normalise", fn="app.services.document_normalisation_services.normalise_docx"):
+                _progress(8, "structure")
+                normalisation_report = normalise_docx(original_docx_path, working_path)
+                docx_path = working_path
+            snap(docx_path, "after_normalise")
         except Exception as exc:
             _record_stage_error("Document normalisation", exc)
             normalisation_report = None
@@ -706,23 +712,26 @@ def doc_analysis_pipeline(
 
         # ── Phase 1: Run all independent analysis tasks in parallel ─────────────────
         _progress(15, "structure")
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            f_validate  = executor.submit(validate, docx_path)
-            f_ref       = executor.submit(check_and_report, docx_path)
+        with stage("deterministic_analysis", fn="apa7_validator.validate ∥ reference_checker.check_and_report"):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                f_validate  = executor.submit(validate, docx_path)
+                f_ref       = executor.submit(check_and_report, docx_path)
 
-            deterministic_check_results = f_validate.result()
-            _progress(30, "structure")
-            ref_check_result            = f_ref.result()
-            _progress(42, "refs")
+                deterministic_check_results = f_validate.result()
+                _progress(30, "structure")
+                ref_check_result            = f_ref.result()
+                _progress(42, "refs")
 
         # ── Phase 2: LLM editorial review (needs validate + ref results) ─────────
         _progress(48, "llm")
         try:
-            llm_result = run_editorial_review(
-                docx_path,
-                deterministic_check_result=deterministic_check_results,
-                ref_check_result=ref_check_result,
-            )
+            with stage("llm_editorial_review", fn="editorial_review_service.run_editorial_review") as st:
+                llm_result = run_editorial_review(
+                    docx_path,
+                    deterministic_check_result=deterministic_check_results,
+                    ref_check_result=ref_check_result,
+                )
+                st.meta(notes=len((llm_result or {}).get("notes") or []))
         except Exception as exc:
             _record_stage_error("Editorial review (AI)", exc, severity="critical")
             llm_result = None
@@ -738,26 +747,32 @@ def doc_analysis_pipeline(
         }
 
         try:
-            generate_commented_docx(
-                input_path=docx_path,
-                output_path=resolved_output_path,
-                report=filtered_report,
-                ref_results=ref_check_result["results"],
-                llm_results=llm_result,
-            )
+            with stage(
+                "assemble_comments",
+                fn="app.services.output_generation.generate_commented_docx",
+            ):
+                generate_commented_docx(
+                    input_path=docx_path,
+                    output_path=resolved_output_path,
+                    report=filtered_report,
+                    ref_results=ref_check_result["results"],
+                    llm_results=llm_result,
+                )
         except Exception as exc:
             _record_stage_error("Document generation", exc, severity="critical")
             raise  # no document means no output at all
-        
+
         _progress(78, "building")
+        snap(resolved_output_path, "after_assembly")
 
         # If normalisation actually changed anything, leave a single summary
         # comment on the output so reviewers can see what was stripped.
         if normalisation_report is not None and normalisation_report.changed:
             try:
-                add_document_summary_comment(
-                    resolved_output_path, normalisation_report.summary_text()
-                )
+                with stage("normalise_summary", fn="app.services.output_generation.add_document_summary_comment"):
+                    add_document_summary_comment(
+                        resolved_output_path, normalisation_report.summary_text()
+                    )
             except Exception as exc:
                 _record_stage_error("Normalisation summary comment", exc)
 
@@ -765,7 +780,8 @@ def doc_analysis_pipeline(
             # "what was highlighted in §3 paragraph 4?" without diffing the
             # binary. Best-effort: never block the pipeline if disk I/O fails.
             try:
-                normalisation_report.write_sidecar(resolved_output_path)
+                with stage("normalise_sidecar", fn="normalisation_report.write_sidecar"):
+                    normalisation_report.write_sidecar(resolved_output_path)
             except Exception as exc:
                 _record_stage_error("Normalisation sidecar write", exc)
     finally:
@@ -776,18 +792,23 @@ def doc_analysis_pipeline(
 
     sam_result = None
     try:
-        _progress(82, "finalizing")
-        with zipfile.ZipFile(resolved_output_path, "r") as z:
-            if "word/comments.xml" in z.namelist():
-                xml = z.read("word/comments.xml")
-                root = etree.fromstring(xml)
-                ids = [int(el.get(f"{WQ}id", 0)) for el in root.findall(f"{WQ}comment")]
-                our_max_id = max(ids, default=0)
-            else:
-                our_max_id = 0
-        sam_result = build_edited_document(resolved_output_path, resolved_output_path)
-        _remove_duplicate_sam_comments(resolved_output_path, our_max_id)
-        _progress(88, "finalizing")
+        with stage(
+            "tracked_changes",
+            fn="app.services.output_generation_samfix.build_edited_document",
+        ):
+            _progress(82, "finalizing")
+            with zipfile.ZipFile(resolved_output_path, "r") as z:
+                if "word/comments.xml" in z.namelist():
+                    xml = z.read("word/comments.xml")
+                    root = etree.fromstring(xml)
+                    ids = [int(el.get(f"{WQ}id", 0)) for el in root.findall(f"{WQ}comment")]
+                    our_max_id = max(ids, default=0)
+                else:
+                    our_max_id = 0
+            sam_result = build_edited_document(resolved_output_path, resolved_output_path)
+            _remove_duplicate_sam_comments(resolved_output_path, our_max_id)
+            _progress(88, "finalizing")
+        snap(resolved_output_path, "after_tracked_changes")
     except Exception as exc:
         _record_stage_error("Tracked-changes pass", exc)
 
@@ -803,9 +824,11 @@ def doc_analysis_pipeline(
     # heading text.
     heading_corrections: list[dict] = []
     try:
-        next_lang_id, heading_corrections = apply_heading_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("headings", fn="app.services.heading_corrections.apply_heading_corrections") as st:
+            next_lang_id, heading_corrections = apply_heading_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(heading_corrections))
         _progress(89, "finalizing")
     except Exception as exc:
         _record_stage_error("Heading corrections", exc)
@@ -813,9 +836,11 @@ def doc_analysis_pipeline(
     # AU English spelling corrections as tracked changes.
     spelling_corrections: list[dict] = []
     try:
-        next_lang_id, spelling_corrections = apply_au_spelling_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("spelling_au", fn="app.services.language_corrections.apply_au_spelling_corrections") as st:
+            next_lang_id, spelling_corrections = apply_au_spelling_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(spelling_corrections))
         _progress(90, "finalizing")
     except Exception as exc:
         _record_stage_error("AU spelling corrections", exc)
@@ -823,9 +848,11 @@ def doc_analysis_pipeline(
     # Spell out whole numbers 0-9 in running prose as tracked changes.
     number_word_corrections: list[dict] = []
     try:
-        next_lang_id, number_word_corrections = apply_number_word_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("number_words", fn="app.services.number_word_corrections.apply_number_word_corrections") as st:
+            next_lang_id, number_word_corrections = apply_number_word_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(number_word_corrections))
         _progress(92, "finalizing")
     except Exception as exc:
         _record_stage_error("Number-to-word corrections", exc)
@@ -836,9 +863,11 @@ def doc_analysis_pipeline(
     # ``Fig. N`` → ``Figure N`` per JUTLP house style.
     abbreviation_actions: list[dict] = []
     try:
-        next_lang_id, abbreviation_actions = apply_abbreviation_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("abbreviations", fn="app.services.abbreviation_corrections.apply_abbreviation_corrections") as st:
+            next_lang_id, abbreviation_actions = apply_abbreviation_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(abbreviation_actions))
         _progress(92, "finalizing")
     except Exception as exc:
         _record_stage_error("Abbreviation corrections", exc)
@@ -850,9 +879,11 @@ def doc_analysis_pipeline(
     # misspellings.
     spell_check_corrections: list[dict] = []
     try:
-        next_lang_id, spell_check_corrections = apply_spell_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("spell_check", fn="app.services.spell_checker.apply_spell_corrections") as st:
+            next_lang_id, spell_check_corrections = apply_spell_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(spell_check_corrections))
         _progress(93, "finalizing")
     except Exception as exc:
         _record_stage_error("Spell-check corrections", exc)
@@ -864,9 +895,11 @@ def doc_analysis_pipeline(
     # known. See app.services.acronym_corrections for the full rules.
     acronym_actions: list[dict] = []
     try:
-        next_lang_id, acronym_actions = apply_acronym_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("acronyms", fn="app.services.acronym_corrections.apply_acronym_corrections") as st:
+            next_lang_id, acronym_actions = apply_acronym_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(acronym_actions))
         _progress(94, "finalizing")
     except Exception as exc:
         _record_stage_error("Acronym corrections", exc)
@@ -875,9 +908,11 @@ def doc_analysis_pipeline(
     # checks. Both emit comments only — no tracked changes.
     decimal_actions: list[dict] = []
     try:
-        next_lang_id, decimal_actions = apply_decimal_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("decimals", fn="app.services.decimal_corrections.apply_decimal_corrections") as st:
+            next_lang_id, decimal_actions = apply_decimal_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(decimal_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Decimal corrections", exc)
@@ -888,9 +923,11 @@ def doc_analysis_pipeline(
     # "this sentence doesn't make sense" category Joey asked for.
     coherence_actions: list[dict] = []
     try:
-        next_lang_id, coherence_actions = apply_sentence_coherence_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("coherence", fn="app.services.sentence_coherence_corrections.apply_sentence_coherence_corrections") as st:
+            next_lang_id, coherence_actions = apply_sentence_coherence_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(coherence_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Sentence-coherence corrections", exc)
@@ -901,9 +938,11 @@ def doc_analysis_pipeline(
     # judge the surrounding sentence before changing the verb.
     contingent_grammar_actions: list[dict] = []
     try:
-        next_lang_id, contingent_grammar_actions = apply_contingent_grammar_comments(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("grammar", fn="app.services.grammar_corrections.apply_contingent_grammar_comments") as st:
+            next_lang_id, contingent_grammar_actions = apply_contingent_grammar_comments(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(contingent_grammar_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Contingent grammar comments", exc)
@@ -914,9 +953,11 @@ def doc_analysis_pipeline(
     # leaving it joined, so the editor handles the restructure.
     caption_apa7_actions: list[dict] = []
     try:
-        next_lang_id, caption_apa7_actions = apply_caption_apa7_comments(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("captions_apa7", fn="app.services.caption_apa7_check.apply_caption_apa7_comments") as st:
+            next_lang_id, caption_apa7_actions = apply_caption_apa7_comments(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(caption_apa7_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Caption APA7 check", exc)
@@ -926,9 +967,11 @@ def doc_analysis_pipeline(
     # subsample, so the author should confirm which they intend. Comment-only.
     table_n_actions: list[dict] = []
     try:
-        next_lang_id, table_n_actions = apply_table_n_notation_comments(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("table_n", fn="app.services.table_n_notation_comments.apply_table_n_notation_comments") as st:
+            next_lang_id, table_n_actions = apply_table_n_notation_comments(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(table_n_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Table N notation check", exc)
@@ -938,9 +981,11 @@ def doc_analysis_pipeline(
     # table block when deciding adjacency. Comment-only.
     table_section_boundary_actions: list[dict] = []
     try:
-        next_lang_id, table_section_boundary_actions = apply_table_section_boundary_comments(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("table_sections", fn="app.services.table_section_boundary_comments.apply_table_section_boundary_comments") as st:
+            next_lang_id, table_section_boundary_actions = apply_table_section_boundary_comments(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(table_section_boundary_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Table section boundary check", exc)
@@ -953,9 +998,11 @@ def doc_analysis_pipeline(
     # fallback below.
     table_keep_together_actions: list[dict] = []
     try:
-        table_keep_together_actions = apply_table_keep_together(
-            resolved_output_path, resolved_output_path
-        )
+        with stage("table_keep_together", fn="app.services.table_keep_together.apply_table_keep_together") as st:
+            table_keep_together_actions = apply_table_keep_together(
+                resolved_output_path, resolved_output_path
+            )
+            st.count(len(table_keep_together_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Table keep-together", exc)
@@ -965,9 +1012,11 @@ def doc_analysis_pipeline(
     # server-side, so the table pass uses a conservative row/text estimate.
     table_page_break_actions: list[dict] = []
     try:
-        table_page_break_actions = apply_table_page_breaks(
-            resolved_output_path, resolved_output_path
-        )
+        with stage("table_page_breaks", fn="app.services.table_page_breaks.apply_table_page_breaks") as st:
+            table_page_break_actions = apply_table_page_breaks(
+                resolved_output_path, resolved_output_path
+            )
+            st.count(len(table_page_break_actions))
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Table page breaks", exc)
@@ -978,9 +1027,11 @@ def doc_analysis_pipeline(
     # only: the content is left in place for the author to relocate.
     appendix_actions: list[dict] = []
     try:
-        next_lang_id, appendix_actions = apply_appendix_removal(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("appendix", fn="app.services.appendix_removal.apply_appendix_removal") as st:
+            next_lang_id, appendix_actions = apply_appendix_removal(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(appendix_actions))
         _progress(97, "finalizing")
     except Exception as exc:
         _record_stage_error("Appendix comment", exc)
@@ -991,9 +1042,11 @@ def doc_analysis_pipeline(
     # only: only the author knows the real citation/affiliation.
     blinded_citation_actions: list[dict] = []
     try:
-        next_lang_id, blinded_citation_actions = apply_blinded_citation_comments(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("blinded_citations", fn="app.services.blinded_citation_comments.apply_blinded_citation_comments") as st:
+            next_lang_id, blinded_citation_actions = apply_blinded_citation_comments(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(blinded_citation_actions))
         _progress(97, "finalizing")
     except Exception as exc:
         _record_stage_error("Blinded citation check", exc)
@@ -1011,20 +1064,24 @@ def doc_analysis_pipeline(
     # is present and DOI injection skips those entries.
     ref_format_corrections: list[dict] = []
     try:
-        next_lang_id, ref_format_corrections = apply_reference_format_corrections(
-            resolved_output_path,
-            resolved_output_path,
-            next_lang_id,
-            ref_check_result["results"],
-        )
+        with stage("refs_format", fn="app.services.reference_format_corrections.apply_reference_format_corrections") as st:
+            next_lang_id, ref_format_corrections = apply_reference_format_corrections(
+                resolved_output_path,
+                resolved_output_path,
+                next_lang_id,
+                ref_check_result["results"],
+            )
+            st.count(len(ref_format_corrections))
         _progress(97, "finalizing")
     except Exception as exc:
         _record_stage_error("Reference format corrections", exc)
 
     # 2) Inject CrossRef-verified DOI hyperlinks for references that have no URL.
     try:
-        _inject_crossref_doi_links(resolved_output_path, ref_check_result["results"])
+        with stage("refs_doi", fn="_inject_crossref_doi_links"):
+            _inject_crossref_doi_links(resolved_output_path, ref_check_result["results"])
         _progress(97, "finalizing")
+        snap(resolved_output_path, "after_reference_cluster")
     except Exception as exc:
         _record_stage_error("CrossRef DOI injection", exc)
 
@@ -1036,9 +1093,11 @@ def doc_analysis_pipeline(
     # 3) APA hanging indent on every reference entry (tracked pPr change).
     reference_indent_actions: list[dict] = []
     try:
-        next_lang_id, reference_indent_actions = apply_reference_indent_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("refs_indent", fn="app.services.reference_indent_corrections.apply_reference_indent_corrections") as st:
+            next_lang_id, reference_indent_actions = apply_reference_indent_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(reference_indent_actions))
         _progress(98, "finalizing")
     except Exception as exc:
         _record_stage_error("Reference indent corrections", exc)
@@ -1048,9 +1107,11 @@ def doc_analysis_pipeline(
     # w:ins, so styled directly), plus any leftover direct non-Calibri run.
     run_font_actions: list[dict] = []
     try:
-        next_lang_id, run_font_actions = apply_run_font_corrections(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("run_fonts", fn="app.services.run_font_corrections.apply_run_font_corrections") as st:
+            next_lang_id, run_font_actions = apply_run_font_corrections(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(run_font_actions))
         _progress(98, "finalizing")
     except Exception as exc:
         _record_stage_error("Run font corrections", exc)
@@ -1060,9 +1121,11 @@ def doc_analysis_pipeline(
     # judgement, so the bot flags it on the References heading.
     reference_order_actions: list[dict] = []
     try:
-        next_lang_id, reference_order_actions = apply_reference_order_comments(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("refs_order", fn="app.services.reference_order_comments.apply_reference_order_comments") as st:
+            next_lang_id, reference_order_actions = apply_reference_order_comments(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(reference_order_actions))
         _progress(98, "finalizing")
     except Exception as exc:
         _record_stage_error("Reference order check", exc)
@@ -1071,29 +1134,34 @@ def doc_analysis_pipeline(
     # comment-only author queries at each paragraph.
     short_paragraph_actions: list[dict] = []
     try:
-        next_lang_id, short_paragraph_actions = apply_short_paragraph_comments(
-            resolved_output_path, resolved_output_path, next_lang_id
-        )
+        with stage("short_paragraphs", fn="app.services.short_paragraph_comments.apply_short_paragraph_comments") as st:
+            next_lang_id, short_paragraph_actions = apply_short_paragraph_comments(
+                resolved_output_path, resolved_output_path, next_lang_id
+            )
+            st.count(len(short_paragraph_actions))
         _progress(98, "finalizing")
     except Exception as exc:
         _record_stage_error("Short paragraph comments", exc)
 
     # Add Word comments on reference entries that could not be verified.
     try:
-        _insert_suspicious_ref_comments(resolved_output_path, ref_check_result["results"])
+        with stage("suspicious_refs", fn="_insert_suspicious_ref_comments"):
+            _insert_suspicious_ref_comments(resolved_output_path, ref_check_result["results"])
     except Exception as exc:
         _record_stage_error("Suspicious reference comments", exc)
 
     # Convert any remaining plain-text http(s) URLs to clickable hyperlinks.
     try:
-        _hyperlink_plain_urls_in_refs(resolved_output_path)
+        with stage("urls_hyperlink", fn="_hyperlink_plain_urls_in_refs"):
+            _hyperlink_plain_urls_in_refs(resolved_output_path)
         _progress(99, "finalizing")
     except Exception as exc:
         _record_stage_error("URL hyperlinking", exc)
 
     # Ensure the document opens with All Markup (balloon) view by default.
     try:
-        _patch_settings_show_markup(resolved_output_path)
+        with stage("markup_view", fn="_patch_settings_show_markup"):
+            _patch_settings_show_markup(resolved_output_path)
         _progress(99, "finalizing")
     except Exception as exc:
         _record_stage_error("Markup view settings", exc)
@@ -1102,10 +1170,22 @@ def doc_analysis_pipeline(
     # renumbered its own comments. Do one final pass so visible Author Query
     # labels follow the document anchors instead of raw creation order.
     try:
-        _renumber_final_author_queries(resolved_output_path)
+        with stage("author_queries", fn="_renumber_final_author_queries"):
+            _renumber_final_author_queries(resolved_output_path)
         _progress(99, "finalizing")
     except Exception as exc:
         _record_stage_error("Final author-query renumbering", exc)
+
+    # ── Dev-trace gates (no-ops without an active trace recorder) ────────────
+    snap(resolved_output_path, "final")
+    if trace is not None:
+        try:
+            dev_word_gate.run_gate([resolved_output_path], trace, after_stage="final")
+        except Exception as exc:  # the gate must never take the run down
+            trace.add_event(
+                "word_gate", path=str(resolved_output_path), ok=False,
+                error=f"gate_error: {exc}", after_stage="final", source="internal",
+            )
 
     return {
         "message": "Document feedback generated.",
@@ -1147,7 +1227,31 @@ if __name__ == "__main__":
         default="tests/jutlp_sample_docx_test_pack/02_missing_method_subsection.docx",
         help="Path to the input .docx file",
     )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Record a developer-debug trace (stage timeline, LLM calls, OOXML checks)",
+    )
+    parser.add_argument(
+        "--trace-word",
+        action="store_true",
+        help="Additionally gate the final document through MS Word via COM automation",
+    )
     args = parser.parse_args()
 
-    result = doc_analysis_pipeline(Path(args.docx_path))
+    local_trace = None
+    if args.trace:
+        local_trace = dev_trace.TraceRecorder(
+            session_id="cli",
+            root_dir=str(Path(args.docx_path).resolve().parent),
+            include_snapshots=True,
+        )
+        if args.trace_word:
+            os.environ[dev_word_gate.WORD_GATE_ENV] = "1"
+        dev_trace.set_ambient(local_trace)
+
+    result = doc_analysis_pipeline(Path(args.docx_path), trace=local_trace)
+    if local_trace is not None:
+        local_trace.finish(summary={"output_path": result.get("output_path")})
+        print(f"[dev-trace] wrote {local_trace.trace_dir}")
     pprint(result)

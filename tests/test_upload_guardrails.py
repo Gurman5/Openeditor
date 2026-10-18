@@ -68,7 +68,7 @@ def test_upload_accepted_when_under_word_limit(monkeypatch):
     monkeypatch.setattr(main, "_max_word_count", 1_000_000)
     started = {"ran": False}
 
-    def _fake_pipeline(input_path, output_path=None, progress_callback=None):
+    def _fake_pipeline(input_path, output_path=None, progress_callback=None, trace=None):
         started["ran"] = True
         if progress_callback:
             progress_callback(50, "refs")
@@ -93,7 +93,7 @@ def test_cooperative_timeout_via_progress_callback(monkeypatch):
     monkeypatch.setattr(main, "_max_word_count", 1_000_000)
     monkeypatch.setattr(main, "_analysis_timeout_seconds", 1)
 
-    def _slow_pipeline(input_path, output_path=None, progress_callback=None):
+    def _slow_pipeline(input_path, output_path=None, progress_callback=None, trace=None):
         for _ in range(200):
             if progress_callback:
                 progress_callback(50, "building")  # raises once past deadline
@@ -114,7 +114,7 @@ def test_hard_timeout_when_pipeline_ignores_callback(monkeypatch):
     monkeypatch.setattr(main, "_max_word_count", 1_000_000)
     monkeypatch.setattr(main, "_analysis_timeout_seconds", 1)
 
-    def _stalled_pipeline(input_path, output_path=None, progress_callback=None):
+    def _stalled_pipeline(input_path, output_path=None, progress_callback=None, trace=None):
         time.sleep(5)  # reduced from 30 to finish well within the poll window
 
     monkeypatch.setattr(main, "doc_analysis_pipeline", _stalled_pipeline)
