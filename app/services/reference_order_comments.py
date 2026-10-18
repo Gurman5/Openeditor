@@ -60,7 +60,7 @@ def _first_inversion(entries: list[str]) -> tuple[str, str] | None:
 def _build_comment(earlier: str, misplaced: str) -> str:
     return (
         "The reference list does not appear to be in alphabetical order. APA 7 "
-        "(JUTLP house style) requires entries to be ordered alphabetically by "
+        "requires entries to be ordered alphabetically by "
         f"the first author's surname. For example, “{misplaced}” appears after "
         f"“{earlier}” but should come before it. Please reorder the reference "
         "list alphabetically by first-author surname."

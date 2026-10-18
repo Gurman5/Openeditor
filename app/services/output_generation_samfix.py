@@ -945,7 +945,7 @@ def titleFormatCheck(docxpath, title_state):
         comment_parts.append(length_message)
 
     if needs_title_case_fix is True:
-        title_case_message = "Title converted to Title Case so it matches JUTLP title formatting."
+        title_case_message = "Title converted to Title Case so it matches APA title formatting."
         comment_parts.append(title_case_message)
 
     message = "\n\n".join(comment_parts)
@@ -2739,7 +2739,7 @@ def abstractFormatCheck(docxpath, abstract_state):
             body_comment_parts.insert(
                 0,
                 f"Abstract merged: {n} separate paragraphs combined into one continuous paragraph "
-                f"as required by JUTLP style. Paragraph breaks removed as tracked changes — "
+                f"as required by house style. Paragraph breaks removed as tracked changes — "
                 f"please accept or reject."
             )
             # Signal that we need to apply merge tracked changes
@@ -3246,7 +3246,7 @@ def keywordsFormatCheck(docxpath, keywords_state):
         if generated:
             message = (
                 "Tracked change applied: inserted 'Keywords' heading and "
-                "AI-suggested keywords under Practitioner Notes — please "
+                "AI-suggested keywords — please "
                 "review and edit to match your paper's contribution."
             )
             missing_comment = (
@@ -4848,11 +4848,11 @@ def build_document_body_check_plan(docxpath):
 
 FRONT_PAGE_BANNER_COMMENT = (
     "Check whether there is a picture/banner at the top of the first page. "
-    "If not, paste in the JUTLP banner."
+    "If not, paste in the banner."
 )
 FRONT_PAGE_TEXT_BOX_COMMENT = (
     "Check whether there is a text box on the first page. "
-    "If not, insert the JUTLP text box."
+    "If not, insert the text box."
 )
 IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _IMAGE_CONTENT_TYPES = {
@@ -9657,13 +9657,6 @@ def _apply_heading_1_text_normalization(input_path, output_path):
     """APA-10: replace a literal 'Introduction' Heading 1 with the paper title.
     > Function pertaining to C-28
 
-<<<<<<< Updated upstream
-    The body must begin with the title repeated in bold and centred, and must
-    not carry an 'Introduction' heading. The heading text is replaced directly
-    (no comment / tracked change); the Heading 1 style it keeps provides the
-    APA bold-and-centred formatting.
-
-=======
     Runs late — after the APA title-page pass and the tracked heading-number
     strip — so ``titleFound`` reflects the final front-page title (already
     title-cased / AU-respelt), and a numbered heading ("1. Introduction") has
@@ -9677,7 +9670,6 @@ def _apply_heading_1_text_normalization(input_path, output_path):
     ``paragraph.text`` setter clears every non-``pPr`` child — including the
     leftover ``w:del``/``w:ins`` from the number strip — which is intended. The
     Heading 1 style is kept, so C-23's bold-and-centred formatting applies.
->>>>>>> Stashed changes
     """
     title_state = titleFound(input_path)
     if title_state.get("title_found") is False:
@@ -9687,10 +9679,7 @@ def _apply_heading_1_text_normalization(input_path, output_path):
     if title_text == "":
         return False
 
-<<<<<<< Updated upstream
-=======
     records = load_paragraphs(input_path)
->>>>>>> Stashed changes
     doc = DocxDocument(input_path)
     changed = False
 
@@ -9698,14 +9687,6 @@ def _apply_heading_1_text_normalization(input_path, output_path):
         if record.style != "Heading 1":
             continue
 
-<<<<<<< Updated upstream
-        heading_text = _normalise_heading_text(paragraph.text).rstrip(":.")
-        if heading_text != "introduction":
-            continue
-        if paragraph.text.strip() == title_text:
-            continue
-
-=======
         heading_text = _normalise_heading_text(record.text).rstrip(":.")
         if heading_text != "introduction":
             continue
@@ -9713,7 +9694,6 @@ def _apply_heading_1_text_normalization(input_path, output_path):
             continue
 
         paragraph = doc.paragraphs[record.index]
->>>>>>> Stashed changes
         paragraph.text = title_text
         changed = True
         break

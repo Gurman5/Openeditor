@@ -1,6 +1,6 @@
 """Detect direct-quotation spans in body prose.
 
-JUTLP house policy: direct quotations must retain the source's original
+House policy: direct quotations must retain the source's original
 text — no spelling, grammar, hyphenation, comma, abbreviation, or other
 copy-edit mutations. Block-quote-styled paragraphs are handled by the
 `SKIP_STYLES` set in ``document_zones``; this module covers **inline**
@@ -25,7 +25,7 @@ recognised, each paired with its matching closer:
     closer, alternating).
   * ``“`` ↔ ``”`` (left and right curly double).
   * ``«`` ↔ ``»`` (French guillemets — included because some
-    JUTLP submissions cite non-English sources).
+    manuscripts may cite non-English sources).
 
 Unmatched marks are ignored — better to miss a quotation than to lock
 half a paragraph from editing because of an orphan straight quote.

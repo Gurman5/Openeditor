@@ -56,7 +56,7 @@ def _build_comment(tokens: list[str]) -> str:
     quoted = ", ".join(f"“{t}”" for t in tokens)
     cats = {_classify(t) for t in tokens}
     msg = (
-        "JUTLP publishes identified, non-blinded manuscripts, so review-stage "
+        "The journal publishes identified, non-blinded manuscripts, so review-stage "
         "blinding placeholders are not acceptable in the final submission. "
         f"This text still contains: {quoted}. "
     )

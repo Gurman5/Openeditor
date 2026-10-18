@@ -176,21 +176,21 @@ CANONICAL_STRUCTURE = {
     },
     "missing_section_queries": {
         "Literature": (
-            "JUTLP policy: The section immediately following the Introduction "
+            "House policy: The section immediately following the Introduction "
             "should be entitled Literature and use a Heading Level 1 style."
         ),
         "Method": (
-            "JUTLP policy: The section immediately following the Literature "
+            "House policy: The section immediately following the Literature "
             "should be entitled Method and use a Heading Level 1 style."
         ),
         "Results": (
-            "JUTLP policy: The section immediately following the Method "
+            "House policy: The section immediately following the Method "
             "should be entitled Results and use a Heading Level 1 style."
         ),
     },
     "combined_results_discussion_query": (
-        "JUTLP policy: Results and Discussion should be separate Heading Level "
-        "1 sections. This Journal does not include combined analyses and "
+        "House policy: Results and Discussion should be separate Heading Level "
+        "1 sections. The journal does not include combined analyses and "
         "discussion sections as it typically limits the opportunity to report "
         "findings clearly and then synthesize these findings with contemporary "
         "literature."

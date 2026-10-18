@@ -55,7 +55,7 @@ _COMMA_DECIMAL = re.compile(r"(?<![.\d])\d+,\d{1,2}(?![.,\d])")
 # ---------------------------------------------------------------------------
 
 _PRECISION_COMMENT = (
-    "This Journal reports to two decimal places in line with APA7. "
+    "The journal reports to two decimal places in line with APA7. "
     "We understand some specific analyses require reporting beyond two "
     "decimal places in APA7. Please review carefully to ensure your "
     "reporting meets these guidelines."
@@ -147,7 +147,7 @@ def _find_next_action(
     a suspected comma-as-decimal.
 
     Matches that sit inside a direct quotation (paired double quotes) are
-    skipped — JUTLP policy: direct quotations retain the source's
+    skipped — house policy: direct quotations retain the source's
     original text.
     """
     best = None  # (run, start, end, check, message, value)
