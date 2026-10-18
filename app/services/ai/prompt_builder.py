@@ -120,11 +120,13 @@ checker).
 - Do NOT check in-text citation vs reference list matching.
 - Title length:  APA 7 has no fixed word limit — flag titles only for \
 clarity, title case, or misleading scope
-- Significance statement: If the Introduction section is present, check \
-whether it contains a paragraph that explicitly states the significance or \
-contribution of the study. If this paragraph is absent, flag it as \
-"introduction_quality". Do NOT flag this if the Introduction section itself \
-is missing (that is a structural issue handled elsewhere).
+- Significance statement: ONLY apply this rule when the manuscript content \
+below includes a "## Section: Introduction" block. The sections shown are \
+the COMPLETE manuscript; if no Introduction block appears, the Introduction \
+is absent — skip this rule entirely (a missing section is a structural issue \
+handled elsewhere, never an editorial note). When an Introduction block IS \
+present, check whether it states the study's significance or contribution, \
+and flag a missing significance statement as "introduction_quality" only then.
 - Colloquial language: Flag informal or colloquial words and phrases \
 (e.g. "a lot of", "quick", "get", "show up", "kids") and suggest formal \
 academic equivalents in the suggestion field (e.g. "numerous", "efficient", \

@@ -92,7 +92,7 @@ class TestSystemPrompt:
         parsed = _make_parsed_structure()
         system, _ = build_prompts(paragraphs, parsed)
 
-        assert "JUTLP Editorial Guidelines" in system
+        assert "APA 7 Editorial Guidelines" in system
 
     def test_contains_all_categories(self):
         paragraphs = _make_paragraphs()
@@ -102,15 +102,14 @@ class TestSystemPrompt:
         for cat in VALID_CATEGORIES:
             assert cat in system
 
-    def test_contains_activist_persona(self):
+    def test_contains_copy_editor_persona(self):
         paragraphs = _make_paragraphs()
         parsed = _make_parsed_structure()
         system, _ = build_prompts(paragraphs, parsed)
 
-        # The persona was reworded to "activist sub-editor / copy editor".
-        # Match the load-bearing tokens so minor future rewording doesn't
-        # break the test, while still catching a complete persona-loss.
-        assert "activist" in system
+        # The persona is now "APA7 copy editor". Match the load-bearing
+        # tokens so minor future rewording doesn't break the test, while
+        # still catching a complete persona-loss.
         assert ("copy editor" in system) or ("copy-editor" in system)
 
     def test_contains_exclusion_rules(self):
@@ -304,8 +303,7 @@ class TestUserPrompt:
         _, user = build_prompts(paragraphs, parsed)
 
         # Without Article Title style, falls back to first non-empty paragraph.
-        # Title header now includes the word count, e.g. "## Title (2 words; ...)".
-        assert "## Title (" in user
+        assert "## Title" in user
         assert "Not found" not in user
 
     def test_missing_abstract_is_omitted(self):

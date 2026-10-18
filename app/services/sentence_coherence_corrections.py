@@ -119,8 +119,8 @@ _COHERENCE_SCHEMA = {
 
 
 _SYSTEM_PROMPT = """\
-You are an editor reviewing an academic manuscript accepted by the Journal of
-University Teaching and Learning Practice (JUTLP).
+You are an editor reviewing an academic manuscript that follows APA 7,
+Australian English.
 
 Your ONLY task is to flag sentences whose meaning is unclear because the
 sentence fails to parse — fragments, missing or dropped words, a sudden
