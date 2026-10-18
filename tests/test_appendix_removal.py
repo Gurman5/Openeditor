@@ -121,7 +121,7 @@ def test_comment_anchored_and_content_not_deleted(tmp_path):
     assert _del_texts(_read_doc_root(out)) == []
     comments = _comment_texts(out)
     assert len(comments) == 1
-    assert "JUTLP does not accept appendices" in comments[0]
+    assert "Appendices are not accepted" in comments[0]
 
 
 def test_appendix_heading_styled_as_reference_entry_is_detected(tmp_path):
@@ -144,7 +144,7 @@ def test_appendix_heading_styled_as_reference_entry_is_detected(tmp_path):
     assert actions[0]["rule"] == "appendix_comment"
     assert "Appendix A" in actions[0]["snippet"]
     assert _del_texts(_read_doc_root(out)) == []  # comment-only
-    assert "JUTLP does not accept appendices" in _comment_texts(out)[0]
+    assert "Appendices are not accepted" in _comment_texts(out)[0]
 
 
 def test_image_after_references_is_flagged(tmp_path):

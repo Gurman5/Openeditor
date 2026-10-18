@@ -1,6 +1,6 @@
 """Tests for the inline-quotation detection helper.
 
-The helper underpins JUTLP's policy that direct quotations retain the
+The helper underpins the policy that direct quotations retain the
 source's original text — every mutating pass relies on it to decide
 whether a regex match or LLM edit sits inside a quoted span.
 """

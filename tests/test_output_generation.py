@@ -272,12 +272,12 @@ class TestNonTemplateSubheadingComment:
         out = str(tmp_path / "out.docx")
         report = {"results": [{
             "rule_id": "MET900", "status": "warn",
-            "message": "Method contains subheading(s) not in the JUTLP expected set: 'Interviews'.",
+            "message": "Method contains subheading(s) not in the expected set: 'Interviews'.",
         }]}
         generate_commented_docx(src, out, report)
 
         texts = get_comment_anchor_texts(out)
-        match = next((c for c in texts if "not in the JUTLP expected set" in c), None)
+        match = next((c for c in texts if "not in the expected set" in c), None)
         assert match is not None, "MET900 advisory did not become a comment"
         # Anchored on the Method heading.
         assert texts[match].strip() == "Method"
