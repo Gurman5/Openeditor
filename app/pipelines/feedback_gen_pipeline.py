@@ -594,11 +594,7 @@ def _hyperlink_plain_urls_in_refs(docx_path: str) -> None:
 
 
 def _patch_settings_show_markup(docx_path: str) -> None:
-    """Patch word/settings.xml so the document opens in All Markup (balloon) view.
-
-    Inserts <w:showDel/>, <w:showInsMarkup/>, and <w:revisionView> before
-    <w:rsids> — the correct schema position — so Word doesn't ignore them.
-    """
+    """Patch word/settings.xml with schema-valid revisionView settings."""
     W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     WQ_S = f"{{{W_NS}}}"
 
@@ -609,33 +605,19 @@ def _patch_settings_show_markup(docx_path: str) -> None:
 
     root = etree.fromstring(settings_xml)
 
-    # Remove any pre-existing copies of the elements we're about to add
     for tag in ("revisionView", "showDel", "showInsMarkup", "trackChanges"):
         for el in root.findall(f"{WQ_S}{tag}"):
             root.remove(el)
 
-    # Insert before <w:rsids> (schema-correct position); fall back to end
     children = list(root)
     rsids = root.find(f"{WQ_S}rsids")
     pos = children.index(rsids) if rsids is not None else len(children)
 
-    # <w:showDel/>  — standalone element: show deleted text
-    root.insert(pos, etree.Element(f"{WQ_S}showDel"))
-    pos += 1
-
-    # <w:showInsMarkup/> — standalone element: show inserted text as markup
-    root.insert(pos, etree.Element(f"{WQ_S}showInsMarkup"))
-    pos += 1
-
-    # <w:revisionView> — All Markup mode with balloons for deletions
     rev = etree.Element(f"{WQ_S}revisionView")
-    rev.set(f"{WQ_S}markup",         "1")
-    rev.set(f"{WQ_S}comments",        "1")
-    rev.set(f"{WQ_S}displayXMLNames", "0")
-    rev.set(f"{WQ_S}showDel",         "1")
-    rev.set(f"{WQ_S}showInsMarkup",   "1")
-    rev.set(f"{WQ_S}formatting",      "1")
-    rev.set(f"{WQ_S}inkAnnotations",  "1")
+    rev.set(f"{WQ_S}markup", "1")
+    rev.set(f"{WQ_S}comments", "1")
+    rev.set(f"{WQ_S}formatting", "1")
+    rev.set(f"{WQ_S}inkAnnotations", "1")
     root.insert(pos, rev)
 
     new_settings_xml = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
@@ -653,6 +635,110 @@ def _patch_settings_show_markup(docx_path: str) -> None:
         _safe_unlink(tmp)
         raise
 
+def _reconcile_comment_sidecars(docx_path: str) -> None:
+    """Ensure comment sidecars and their relationships are synchronized, stripped if unused, or pruned of orphans."""
+    SIDECAR_KEYS = ("commentsExtended", "commentsIds", "commentsExtensible")
+    SIDECAR_FILES = tuple(f"word/{key}.xml" for key in SIDECAR_KEYS)
+    
+    with zipfile.ZipFile(docx_path, "r") as z:
+        names = z.namelist()
+        has_comments = "word/comments.xml" in names
+        
+        valid_para_ids = set()
+        has_any_para_id = False
+        
+        if has_comments:
+            try:
+                comments_root = etree.fromstring(z.read("word/comments.xml"))
+                W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
+                for p in comments_root.iter(f"{{{W_NS}}}p"):
+                    pid = p.get(f"{{{W14_NS}}}paraId") or p.get("paraId")
+                    if pid:
+                        valid_para_ids.add(pid)
+                        has_any_para_id = True
+            except Exception:
+                pass
+
+        file_data = {item.filename: z.read(item.filename) for item in z.infolist()}
+
+    modified = False
+    should_strip_all = not has_comments or (has_comments and not has_any_para_id)
+
+    if should_strip_all:
+        # 1. Remove sidecar files
+        for sc in SIDECAR_FILES:
+            if sc in file_data:
+                del file_data[sc]
+                modified = True
+
+        # 2. Remove relationships from word/_rels/document.xml.rels
+        doc_rels_path = "word/_rels/document.xml.rels"
+        if doc_rels_path in file_data:
+            try:
+                rels_root = etree.fromstring(file_data[doc_rels_path])
+                removed_rel = False
+                for rel in list(rels_root):
+                    target = rel.get("Target", "")
+                    if any(key in target for key in SIDECAR_KEYS):
+                        rels_root.remove(rel)
+                        removed_rel = True
+                if removed_rel:
+                    file_data[doc_rels_path] = etree.tostring(rels_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                    modified = True
+            except Exception:
+                pass
+
+        # 3. Remove overrides from [Content_Types].xml
+        ct_path = "[Content_Types].xml"
+        if ct_path in file_data:
+            try:
+                ct_root = etree.fromstring(file_data[ct_path])
+                removed_ct = False
+                for override in list(ct_root):
+                    part_name = override.get("PartName", "")
+                    if any(key in part_name for key in SIDECAR_KEYS):
+                        ct_root.remove(override)
+                        removed_ct = True
+                if removed_ct:
+                    file_data[ct_path] = etree.tostring(ct_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                    modified = True
+            except Exception:
+                pass
+    else:
+        # Prune orphan entries inside existing sidecar XML files while keeping the files themselves
+        for sc in SIDECAR_FILES:
+            if sc in file_data:
+                try:
+                    sc_root = etree.fromstring(file_data[sc])
+                    removed_any = False
+                    for child in list(sc_root):
+                        pid = (
+                            child.get("{http://schemas.microsoft.com/office/word/2012/wordml}paraId")
+                            or child.get("{http://schemas.microsoft.com/office/word/2016/wordml/cid}paraId")
+                            or child.get("{http://schemas.microsoft.com/office/word/2018/wordml/cex}paraId")
+                            or child.get("paraId")
+                        )
+                        if pid and valid_para_ids and pid not in valid_para_ids:
+                            sc_root.remove(child)
+                            removed_any = True
+                    if removed_any:
+                        file_data[sc] = etree.tostring(sc_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                        modified = True
+                except Exception:
+                    pass
+
+    if modified:
+        tmp = docx_path + ".sidecar.tmp"
+        try:
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+                for fname, content in file_data.items():
+                    zout.writestr(fname, content)
+            os.replace(tmp, docx_path)
+        except Exception:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
 
 def doc_analysis_pipeline(
     path_to_doc: str | Path,
