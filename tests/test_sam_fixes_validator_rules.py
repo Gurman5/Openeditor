@@ -30,6 +30,23 @@ def _status_of(report, rule_id):
     return {r["rule_id"]: r["status"] for r in report["results"]}.get(rule_id, "(absent)")
 
 
+def _title_heading_has_page_break(path):
+    """True if the body heading that repeats the title carries pageBreakBefore."""
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    doc = Document(str(path))
+    title = next((p.text.strip() for p in doc.paragraphs if p.text.strip()), "")
+    for paragraph in doc.paragraphs:
+        if (
+            paragraph.style is not None
+            and paragraph.style.name == "Heading 1"
+            and paragraph.text.strip() == title
+        ):
+            ppr = paragraph._element.find(f"{w}pPr")
+            if ppr is not None and ppr.find(f"{w}pageBreakBefore") is not None:
+                return True
+    return False
+
+
 def _run_full_build(src, out):
     with patch.object(S, "call_llm_json", side_effect=Exception("skip llm")):
         with patch.object(S, "build_body_edit_plan", return_value={"action": "none", "edits": []}):
@@ -153,13 +170,20 @@ def test_sty004_reference_style_fixed(tmp_path):
 
 
 def test_spe002_intro_page_break(tmp_path):
-    """SPE002 fixed by S._apply_intro_page_break (silent pageBreakBefore)."""
+    """SPE002's page break is inserted by S._apply_intro_page_break.
+
+    C-28 (APA-10) then replaces the literal "Introduction" Heading 1 with the
+    repeated title, so no "Introduction" section remains for SPE002 to key on
+    and the rule stops being emitted. The page break is carried onto the heading
+    that absorbed the Introduction — asserted directly instead.
+    """
     src = tmp_path / "in.docx"
     shutil.copy(SRC, src)
     assert _status_of(validate(str(src)), "SPE002") == "warn"
     out = tmp_path / "out.docx"
     _run_full_build(src, out)
-    assert _status_of(validate(str(out)), "SPE002") == "pass"
+    assert _status_of(validate(str(out)), "SPE002") == "(absent)"
+    assert _title_heading_has_page_break(out) is True
 
 
 def test_tab001_table_title_style(tmp_path):

@@ -154,7 +154,10 @@ def test_build_edited_document_strips_heading_numbers(tmp_path):
     doc.add_paragraph("This abstract paragraph gives enough text for a simple test.")
     doc.add_paragraph("Keywords")
     doc.add_paragraph("copy editing; testing")
-    doc.add_paragraph("1. Introduction", style="Heading 1")
+    # A numbered *Introduction* is stripped then consumed by C-28's untracked
+    # title replacement (see test_apa7_intro_heading.py), so use a different
+    # H1 here to observe the tracked number strip itself.
+    doc.add_paragraph("1. Method", style="Heading 1")
     doc.add_paragraph("Body text.")
     doc.add_paragraph(
         "1.1 the Scarcity of Longitudinal Evaluation in Engineering Education",
@@ -172,7 +175,7 @@ def test_build_edited_document_strips_heading_numbers(tmp_path):
                 build_edited_document(str(src), str(out))
 
     edits = _edits(str(out))
-    assert ("1. Introduction", "Introduction") in edits
+    assert ("1. Method", "Method") in edits
     assert (
         "1.1 The Scarcity of Longitudinal Evaluation in Engineering Education",
         "The Scarcity of Longitudinal Evaluation in Engineering Education",
