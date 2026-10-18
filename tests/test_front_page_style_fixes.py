@@ -626,64 +626,35 @@ def test_author_queries_are_renumbered_by_document_anchor_order(tmp_path):
     ]
 
 
-def test_heading_1_text_normalization_changes_known_aliases_without_comments(tmp_path):
+def test_apa10_introduction_heading_is_replaced_with_the_title(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
 
     doc = Document()
+    doc.add_paragraph("Mindful Reading in the Workplace")
     doc.add_paragraph("Introduction").style = "Heading 1"
-    doc.add_paragraph("Literature Review").style = "Heading 1"
-    doc.add_paragraph("Review of Literature").style = "Heading 1"
-    doc.add_paragraph("Methodology").style = "Heading 1"
-    doc.add_paragraph("Findings").style = "Heading 1"
-    doc.add_paragraph("Conclusions").style = "Heading 1"
-    doc.add_paragraph("Concluding Remarks").style = "Heading 1"
+    doc.add_paragraph("Body text follows.")
     doc.save(input_path)
 
     changed = _apply_heading_1_text_normalization(str(input_path), str(output_path))
 
-    template_heading_names = CANONICAL_STRUCTURE["main_sections"]
-    assert "Literature" in template_heading_names
-    assert "Method" in template_heading_names
     assert changed is True
     assert _paragraph_texts_by_style(output_path, "Heading 1") == [
-        "Introduction",
-        "Literature",
-        "Literature",
-        "Method",
-        "Results",
-        "Conclusion",
-        "Conclusion",
+        "Mindful Reading in the Workplace",
     ]
 
     with zipfile.ZipFile(output_path, "r") as z:
         assert "word/comments.xml" not in z.namelist()
 
 
-def test_combined_results_discussion_heading_is_not_silently_normalized(tmp_path):
+def test_apa10_heading_that_is_already_the_title_is_left_unchanged(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
 
     doc = Document()
-    doc.add_paragraph("Introduction").style = "Heading 1"
-    doc.add_paragraph("Literature").style = "Heading 1"
-    doc.add_paragraph("Method").style = "Heading 1"
-    doc.add_paragraph("Results and Discussion").style = "Heading 1"
-    doc.save(input_path)
-
-    changed = _apply_heading_1_text_normalization(str(input_path), str(output_path))
-
-    assert changed is False
-
-
-def test_heading_1_text_normalization_returns_false_when_no_aliases(tmp_path):
-    input_path = tmp_path / "input.docx"
-    output_path = tmp_path / "output.docx"
-
-    doc = Document()
-    doc.add_paragraph("Introduction").style = "Heading 1"
-    doc.add_paragraph("Literature").style = "Heading 1"
-    doc.add_paragraph("Method").style = "Heading 1"
+    doc.add_paragraph("Mindful Reading in the Workplace")
+    doc.add_paragraph("Mindful Reading in the Workplace").style = "Heading 1"
+    doc.add_paragraph("Body text follows.")
     doc.save(input_path)
 
     changed = _apply_heading_1_text_normalization(str(input_path), str(output_path))

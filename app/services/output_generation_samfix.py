@@ -14,7 +14,6 @@ from lxml import etree
 
 from app.domain.apa7_template import (
     CANONICAL_STRUCTURE,
-    SECTION_RENAME_MAP,
     strip_leading_section_number,
 )
 from app.services.acronym_store import load_acronyms
@@ -9654,31 +9653,24 @@ def _apply_editorial_review_comment_plan(input_path, output_path, plan):
     return True
 
 
-def _template_heading_1_name(section_name):
-    """Return the exact Heading 1 name used by the JUTLP 2026 template model."""
-    for heading_name in CANONICAL_STRUCTURE["main_sections"]:
-        if _normalise_heading_text(heading_name) == _normalise_heading_text(section_name):
-            return heading_name
-    return section_name
-
-
-# Built from the shared SECTION_RENAME_MAP (single source of truth, see
-# apa7_template) so this silent Heading 1 rename covers exactly the
-# same wordings as the tracked heading-corrections pass. Keys are normalised
-# aliases; values are the canonical JUTLP heading label.
-HEADING_1_TEXT_NORMALIZATIONS = {
-    alias: _template_heading_1_name(canonical)
-    for alias, canonical in SECTION_RENAME_MAP.items()
-}
-
-
-def _canonical_heading_1_text(text):
-    clean = _normalise_heading_text(text).rstrip(":.")
-    return HEADING_1_TEXT_NORMALIZATIONS.get(clean)
-
-
 def _apply_heading_1_text_normalization(input_path, output_path):
-    """Apply direct Heading 1 text fixes without comments or tracked changes."""
+    """APA-10: replace a literal 'Introduction' Heading 1 with the paper title.
+    > Function pertaining to C-28
+
+    The body must begin with the title repeated in bold and centred, and must
+    not carry an 'Introduction' heading. The heading text is replaced directly
+    (no comment / tracked change); the Heading 1 style it keeps provides the
+    APA bold-and-centred formatting.
+
+    """
+    title_state = titleFound(input_path)
+    if title_state.get("title_found") is False:
+        return False
+
+    title_text = (title_state.get("title_text") or "").strip()
+    if title_text == "":
+        return False
+
     doc = DocxDocument(input_path)
     changed = False
 
@@ -9687,14 +9679,15 @@ def _apply_heading_1_text_normalization(input_path, output_path):
         if style_name != "Heading 1":
             continue
 
-        replacement = _canonical_heading_1_text(paragraph.text)
-        if replacement is None:
+        heading_text = _normalise_heading_text(paragraph.text).rstrip(":.")
+        if heading_text != "introduction":
             continue
-        if paragraph.text.strip() == replacement:
+        if paragraph.text.strip() == title_text:
             continue
 
-        paragraph.text = replacement
+        paragraph.text = title_text
         changed = True
+        break
 
     if changed is False:
         return False
