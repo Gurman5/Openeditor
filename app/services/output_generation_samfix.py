@@ -6344,7 +6344,8 @@ def _make_comment_element(comment_id, text):
 
 
 #attach comment range markers to target paragraph
-def _inject_comment_markers(para_element, comment_id):
+def _inject_comment_markers(para_element: etree._Element, comment_id: int) -> None:
+    """Fallback comment anchor: wrap the whole paragraph respecting w:pPr and existing markers."""
     nsmap = {"w": W}
 
     start = etree.Element(f"{WQ}commentRangeStart", nsmap=nsmap)
@@ -6354,18 +6355,22 @@ def _inject_comment_markers(para_element, comment_id):
     end.set(f"{WQ}id", str(comment_id))
 
     ref_run = etree.Element(f"{WQ}r", nsmap=nsmap)
-    r_pr = etree.SubElement(ref_run, f"{WQ}rPr")
-    r_style = etree.SubElement(r_pr, f"{WQ}rStyle")
-    r_style.set(f"{WQ}val", "CommentReference")
+    rPr = etree.SubElement(ref_run, f"{WQ}rPr")
+    rStyle = etree.SubElement(rPr, f"{WQ}rStyle")
+    rStyle.set(f"{WQ}val", "CommentReference")
     comment_ref = etree.SubElement(ref_run, f"{WQ}commentReference")
     comment_ref.set(f"{WQ}id", str(comment_id))
 
-    insert_at = 0
-    children = list(para_element)
-    while insert_at < len(children) and children[insert_at].tag == f"{WQ}commentRangeStart":
-        insert_at += 1
+    # Find insertion point: after w:pPr and after any existing commentRangeStart elements
+    p_pr = para_element.find(f"{WQ}pPr")
+    insert_idx = 0
+    if p_pr is not None:
+        insert_idx = list(para_element).index(p_pr) + 1
+    
+    while insert_idx < len(para_element) and para_element[insert_idx].tag == f"{WQ}commentRangeStart":
+        insert_idx += 1
 
-    para_element.insert(insert_at, start)
+    para_element.insert(insert_idx, start)
     para_element.append(end)
     para_element.append(ref_run)
 
