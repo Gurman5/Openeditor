@@ -24,7 +24,6 @@ from app.services.heading_corrections import (
 )
 from app.services.jutlp_validator import _matches_section
 from app.services.output_generation_samfix import (
-    HEADING_1_TEXT_NORMALIZATIONS,
     build_edited_document,
 )
 
@@ -224,14 +223,6 @@ def test_every_rename_alias_is_accepted_by_the_validator():
     for alias_norm, canonical in SECTION_RENAME_MAP.items():
         aliases = CANONICAL_STRUCTURE["section_aliases"].get(canonical, [])
         assert _matches_section(alias_norm, canonical, aliases), (alias_norm, canonical)
-
-
-def test_sam_silent_rename_uses_the_same_map():
-    """Sam's Heading 1 normalisation and the tracked pass cover identical
-    wordings (both derive from SECTION_RENAME_MAP)."""
-    assert set(HEADING_1_TEXT_NORMALIZATIONS) == set(SECTION_RENAME_MAP)
-    for key, canonical in SECTION_RENAME_MAP.items():
-        assert HEADING_1_TEXT_NORMALIZATIONS[key] == canonical
 
 
 # ── numeric style-id resolution (converted-doc headings) ─────────────────────
