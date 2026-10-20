@@ -197,7 +197,7 @@ process or a modal dialog can fail the open even when the file is fine
 corruption). `trace_index.json` lists which stage the output last passed
 OOXML checks, so the first Word-breaking stage can be localised.
 
-# Known limits
+## Known limits
 
 - The ambient recorder is process-wide: two concurrent traced sessions will
   cross-reference LLM/API events (stage events, which go by explicit
@@ -207,3 +207,15 @@ OOXML checks, so the first Word-breaking stage can be localised.
 - The HTML report embeds prompts/responses but links snapshots by file path —
   move the report and the trace dir together if you want the .docx links to
   keep working.
+
+## Env
+
+ `app/services/config.py:5` calls `load_dotenv()` at startup, before any gate check (`is_enabled()` reads `os.environ` at upload/CLI time), so putting it in `.env` works for **both** paths — just restart the server (or re-run the CLI) after editing:
+
+```dotenv
+PIPELINE_TRACE=1
+PIPELINE_TRACE_SNAPSHOTS=1   # optional
+PIPELINE_TRACE_WORD=1        # optional, Windows + Word
+```
+
+Two caveats: a shell variable (`$env:PIPELINE_TRACE='1'`) **overrides** `.env` if both are set (dotenv doesn't overwrite existing values), and `.env` is read once at startup.
