@@ -945,7 +945,7 @@ def titleFormatCheck(docxpath, title_state):
         comment_parts.append(length_message)
 
     if needs_title_case_fix is True:
-        title_case_message = "Title converted to Title Case so it matches JUTLP title formatting."
+        title_case_message = "Title converted to Title Case so it matches APA title formatting."
         comment_parts.append(title_case_message)
 
     message = "\n\n".join(comment_parts)
@@ -2739,7 +2739,7 @@ def abstractFormatCheck(docxpath, abstract_state):
             body_comment_parts.insert(
                 0,
                 f"Abstract merged: {n} separate paragraphs combined into one continuous paragraph "
-                f"as required by JUTLP style. Paragraph breaks removed as tracked changes — "
+                f"as required by house style. Paragraph breaks removed as tracked changes — "
                 f"please accept or reject."
             )
             # Signal that we need to apply merge tracked changes
@@ -3246,7 +3246,7 @@ def keywordsFormatCheck(docxpath, keywords_state):
         if generated:
             message = (
                 "Tracked change applied: inserted 'Keywords' heading and "
-                "AI-suggested keywords under Practitioner Notes — please "
+                "AI-suggested keywords — please "
                 "review and edit to match your paper's contribution."
             )
             missing_comment = (
@@ -4848,11 +4848,11 @@ def build_document_body_check_plan(docxpath):
 
 FRONT_PAGE_BANNER_COMMENT = (
     "Check whether there is a picture/banner at the top of the first page. "
-    "If not, paste in the JUTLP banner."
+    "If not, paste in the banner."
 )
 FRONT_PAGE_TEXT_BOX_COMMENT = (
     "Check whether there is a text box on the first page. "
-    "If not, insert the JUTLP text box."
+    "If not, insert the text box."
 )
 IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _IMAGE_CONTENT_TYPES = {
@@ -6344,7 +6344,8 @@ def _make_comment_element(comment_id, text):
 
 
 #attach comment range markers to target paragraph
-def _inject_comment_markers(para_element, comment_id):
+def _inject_comment_markers(para_element: etree._Element, comment_id: int) -> None:
+    """Fallback comment anchor: wrap the whole paragraph respecting w:pPr and existing markers."""
     nsmap = {"w": W}
 
     start = etree.Element(f"{WQ}commentRangeStart", nsmap=nsmap)
@@ -6354,18 +6355,22 @@ def _inject_comment_markers(para_element, comment_id):
     end.set(f"{WQ}id", str(comment_id))
 
     ref_run = etree.Element(f"{WQ}r", nsmap=nsmap)
-    r_pr = etree.SubElement(ref_run, f"{WQ}rPr")
-    r_style = etree.SubElement(r_pr, f"{WQ}rStyle")
-    r_style.set(f"{WQ}val", "CommentReference")
+    rPr = etree.SubElement(ref_run, f"{WQ}rPr")
+    rStyle = etree.SubElement(rPr, f"{WQ}rStyle")
+    rStyle.set(f"{WQ}val", "CommentReference")
     comment_ref = etree.SubElement(ref_run, f"{WQ}commentReference")
     comment_ref.set(f"{WQ}id", str(comment_id))
 
-    insert_at = 0
-    children = list(para_element)
-    while insert_at < len(children) and children[insert_at].tag == f"{WQ}commentRangeStart":
-        insert_at += 1
+    # Find insertion point: after w:pPr and after any existing commentRangeStart elements
+    p_pr = para_element.find(f"{WQ}pPr")
+    insert_idx = 0
+    if p_pr is not None:
+        insert_idx = list(para_element).index(p_pr) + 1
+    
+    while insert_idx < len(para_element) and para_element[insert_idx].tag == f"{WQ}commentRangeStart":
+        insert_idx += 1
 
-    para_element.insert(insert_at, start)
+    para_element.insert(insert_idx, start)
     para_element.append(end)
     para_element.append(ref_run)
 
@@ -9657,11 +9662,19 @@ def _apply_heading_1_text_normalization(input_path, output_path):
     """APA-10: replace a literal 'Introduction' Heading 1 with the paper title.
     > Function pertaining to C-28
 
-    The body must begin with the title repeated in bold and centred, and must
-    not carry an 'Introduction' heading. The heading text is replaced directly
-    (no comment / tracked change); the Heading 1 style it keeps provides the
-    APA bold-and-centred formatting.
+    Runs late — after the APA title-page pass and the tracked heading-number
+    strip — so ``titleFound`` reflects the final front-page title (already
+    title-cased / AU-respelt), and a numbered heading ("1. Introduction") has
+    already been reduced to "Introduction". The heading is matched on the
+    *accepted-changes* text (via ``load_paragraphs``): after the number strip
+    the text sits inside ``w:ins`` and python-docx ``paragraph.text``, which
+    reads only direct-child runs, would see it as empty.
 
+    The heading text is replaced directly (no comment, no tracked change),
+    consistent with the other silent Heading 1 normalisation. The python-docx
+    ``paragraph.text`` setter clears every non-``pPr`` child — including the
+    leftover ``w:del``/``w:ins`` from the number strip — which is intended. The
+    Heading 1 style is kept, so C-23's bold-and-centred formatting applies.
     """
     title_state = titleFound(input_path)
     if title_state.get("title_found") is False:
@@ -9671,20 +9684,21 @@ def _apply_heading_1_text_normalization(input_path, output_path):
     if title_text == "":
         return False
 
+    records = load_paragraphs(input_path)
     doc = DocxDocument(input_path)
     changed = False
 
-    for paragraph in doc.paragraphs:
-        style_name = paragraph.style.name if paragraph.style else ""
-        if style_name != "Heading 1":
+    for record in records:
+        if record.style != "Heading 1":
             continue
 
-        heading_text = _normalise_heading_text(paragraph.text).rstrip(":.")
+        heading_text = _normalise_heading_text(record.text).rstrip(":.")
         if heading_text != "introduction":
             continue
-        if paragraph.text.strip() == title_text:
+        if record.text.strip() == title_text:
             continue
 
+        paragraph = doc.paragraphs[record.index]
         paragraph.text = title_text
         changed = True
         break
@@ -9763,17 +9777,12 @@ def build_edited_document(input_path, output_path=None, mode=None):
         current_input_path = output_path
         applied_any = True
 
-    # C-23 / APA-11: restyle Heading 1-5 from the APA base before C-28 rewrites
-    # heading text, so the heading C-28 creates is already APA-styled.
+    # C-23 / APA-11: restyle Heading 1-5 from the APA base. C-28 (which rewrites
+    # a literal "Introduction" heading to the title) now runs later — after the
+    # title page and the tracked heading-number strip — so the heading it
+    # creates still picks up these APA style definitions.
     heading_styles_applied = _apply_apa_heading_styles(current_input_path, output_path)
     if heading_styles_applied is True:
-        current_input_path = output_path
-        applied_any = True
-
-    heading_1_text_normalization_applied = _apply_heading_1_text_normalization(
-        current_input_path, output_path
-    )
-    if heading_1_text_normalization_applied is True:
         current_input_path = output_path
         applied_any = True
 
@@ -9895,6 +9904,16 @@ def build_edited_document(input_path, output_path=None, mode=None):
         mode=mode,
     )
     if apa_title_page_applied is True:
+        current_input_path = output_path
+        applied_any = True
+
+    # C-28 / APA-10: runs after the title page (so titleFound reflects the final
+    # front-page title) and after apply_heading_corrections above (so a numbered
+    # "1. Introduction" has already been reduced to "Introduction").
+    heading_1_text_normalization_applied = _apply_heading_1_text_normalization(
+        current_input_path, output_path
+    )
+    if heading_1_text_normalization_applied is True:
         current_input_path = output_path
         applied_any = True
 

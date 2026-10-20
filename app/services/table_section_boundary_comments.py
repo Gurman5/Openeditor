@@ -1,6 +1,6 @@
 """Flag sections that open or close directly with a table.
 
-JUTLP/APA style expects a table to be introduced and interpreted in prose: a
+APA style expects a table to be introduced and interpreted in prose: a
 section should not *open* straight into a table (no lead-in sentence telling the
 reader what the table shows) nor *close* on a table (no sentence interpreting it
 before the next section begins).

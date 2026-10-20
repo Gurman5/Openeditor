@@ -9,7 +9,7 @@ punctuation, brackets, or dashes):
    Bare ``eg`` / ``eg.`` / ``ie`` / ``ie.`` get normalised to the proper
    periodised + comma form.
 3. ``Fig.`` or ``fig.`` immediately followed by a digit (e.g. ``Fig. 3``)
-   → ``Figure 3`` — per JUTLP house style.
+   → ``Figure 3`` — per house style.
 
 Each match is emitted as a tracked ``<w:del>/<w:ins>`` pair so the editor can
 still accept or reject individual changes in Word. No author-query comment
@@ -131,7 +131,7 @@ def _find_first_match(
     When ``quote_spans`` is provided (paragraph-global offsets) and
     ``run_offset`` is the paragraph-global start of this run, matches
     whose paragraph-global range overlaps any quote span are skipped —
-    JUTLP policy: direct quotations retain the source's original text.
+    House policy: direct quotations retain the source's original text.
     """
     spans = quote_spans or []
     best: tuple[int, int, str, str] | None = None

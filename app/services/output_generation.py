@@ -215,10 +215,7 @@ def _make_comment_element(comment_id: int, text: str) -> etree._Element:
 
 
 def _inject_comment_markers(para_element: etree._Element, comment_id: int) -> None:
-    """Fallback comment anchor: wrap the whole paragraph.
-
-    We only use this when phrase-level anchoring is not possible.
-    """
+    """Fallback comment anchor: wrap the whole paragraph respecting w:pPr and existing markers."""
     nsmap = {"w": W}
 
     start = etree.Element(f"{WQ}commentRangeStart", nsmap=nsmap)
@@ -234,10 +231,19 @@ def _inject_comment_markers(para_element: etree._Element, comment_id: int) -> No
     comment_ref = etree.SubElement(ref_run, f"{WQ}commentReference")
     comment_ref.set(f"{WQ}id", str(comment_id))
 
-    para_element.insert(0, start)
+    # Find insertion point: after w:pPr and after any existing commentRangeStart elements
+    p_pr = para_element.find(f"{WQ}pPr")
+    insert_idx = 0
+    if p_pr is not None:
+        insert_idx = list(para_element).index(p_pr) + 1
+    
+    # Push past any existing commentRangeStart elements to maintain correct relative order
+    while insert_idx < len(para_element) and para_element[insert_idx].tag == f"{WQ}commentRangeStart":
+        insert_idx += 1
+
+    para_element.insert(insert_idx, start)
     para_element.append(end)
     para_element.append(ref_run)
-
 
 def _build_comment_ref_run(comment_id: int) -> etree._Element:
     """Build `<w:r><w:commentReference .../></w:r>` for the inline comment mark."""

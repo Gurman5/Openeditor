@@ -55,7 +55,7 @@ _REFERENCE_HEADINGS = frozenset({
 _APPENDIX_HEADING_RE = re.compile(r'^\s*appendi(?:x|ces)\b', re.IGNORECASE)
 
 _COMMENT_TEXT = (
-    "JUTLP does not accept appendices — the manuscript must end with the "
+    "Appendices are not accepted — the manuscript must end with the "
     "References section. This content appears after the reference list. "
     "Please integrate any essential material into the body of the paper and "
     "remove it from here."

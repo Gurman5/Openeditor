@@ -79,7 +79,7 @@ def check_required_sections(parsed: dict) -> list[dict]:
             results.append(_result(
                 rule_id, "fail",
                 f"'{section}' found combined with another section ('{combined}') — "
-                f"JUTLP requires it as a separate top-level section",
+                f"The template requires it as a separate top-level section",
             ))
         else:
             message = CANONICAL_STRUCTURE.get("missing_section_queries", {}).get(section)
@@ -170,7 +170,7 @@ def _extra_subheading_result(rule_id: str, section: str, extras: list[str],
     listed = ", ".join(f"'{e}'" for e in extras)
     return _result(
         rule_id, "warn",
-        f"{section} contains subheading(s) not in the JUTLP expected set "
+        f"{section} contains subheading(s) not in the expected set "
         f"({expected}): {listed}. Consider aligning with the expected "
         f"subheadings or confirm they are necessary.",
     )
@@ -385,7 +385,7 @@ def check_page_break_before_introduction(docx_path: str, parsed: dict) -> list[d
     if _section_has_page_break(docx_path, "Introduction"):
         return [_result("SPE002", "pass", "Page break before Introduction found")]
     return [_result("SPE002", "warn",
-        "No page break found before Introduction — the JUTLP template requires one")]
+        "No page break found before Introduction — the template requires one")]
 
 
 def check_page_break_before_references(docx_path: str, parsed: dict) -> list[dict]:
@@ -394,7 +394,7 @@ def check_page_break_before_references(docx_path: str, parsed: dict) -> list[dic
     if _section_has_page_break(docx_path, "References"):
         return [_result("SPE003", "pass", "Page break before References found")]
     return [_result("SPE003", "warn",
-        "No page break found before References — the JUTLP template requires one")]
+        "No page break found before References — the template requires one")]
 
 
 # Styles excluded from informal-language and dot-point scanning.
@@ -704,7 +704,7 @@ def check_no_equal_contributing(docx_path: str) -> list[dict]:
                 "status": "fail",
                 "message": (
                     "Equal contributing authors note found - "
-                    "JUTLP does not accept equal contributing author statements. "
+                    "equal-author statements are not accepted. "
                     "Please remove this note from the affiliations block."
                 ),
                 "para_idx": p.index,

@@ -1,6 +1,6 @@
 """Document-zone detection shared across correction passes.
 
-A JUTLP paper has three distinct zones from the perspective of automated
+An APA manuscript has three distinct zones from the perspective of automated
 prose mutations:
 
 * ``front``    — title, authors, abstract, keywords
@@ -69,8 +69,8 @@ SKIP_STYLES: frozenset[str] = frozenset({
     _STYLE_RULES["table_number"],    # "Table Number"
     _STYLE_RULES["table_title"],     # "Table Title"
     # Block-quote styles. Direct quotations must retain the source's
-    # original spelling, grammar, hyphenation, and punctuation — JUTLP
-    # house policy. The friendly name "Quote" and the style ID "Quote"
+    # original spelling, grammar, hyphenation, and punctuation — house
+    # policy. The friendly name "Quote" and the style ID "Quote"
     # are the same in Word; cover the common aliases too so docs imported
     # from other templates (Block Text, Block Quote) get the same
     # protection.

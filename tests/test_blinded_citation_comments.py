@@ -46,7 +46,8 @@ def test_author_under_review_citation_is_flagged(tmp_path):
     assert len(texts) == 1
     assert "[Author]" in texts[0]
     assert "under review" in texts[0].lower()
-    assert "jutlp" in texts[0].lower()
+    assert "identified" in texts[0].lower()
+    assert "non-blinded" in texts[0].lower()
 
 
 def test_university_placeholder_is_flagged_with_institution_wording(tmp_path):
