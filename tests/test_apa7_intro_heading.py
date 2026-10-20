@@ -1,10 +1,7 @@
 """C-28 / APA-10: a literal 'Introduction' Heading 1 becomes the repeated title."""
 
 import zipfile
-<<<<<<< Updated upstream
-=======
 from unittest.mock import patch
->>>>>>> Stashed changes
 
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
@@ -13,10 +10,7 @@ from lxml import etree
 from app.services.output_generation_samfix import (
     _apply_apa_heading_styles,
     _apply_heading_1_text_normalization,
-<<<<<<< Updated upstream
-=======
     build_edited_document,
->>>>>>> Stashed changes
 )
 from tools.corpus.checks.headings import check_headings
 
@@ -95,8 +89,6 @@ def test_missing_front_page_title_returns_false(tmp_path):
 
     assert _apply_heading_1_text_normalization(str(source), str(output)) is False
     assert output.exists() is False
-<<<<<<< Updated upstream
-=======
 
 
 # ── end-to-end through build_edited_document (the real pass order) ───────────
@@ -169,4 +161,3 @@ def test_body_title_copy_matches_the_au_corrected_front_page_title(tmp_path):
     final_title = _article_title_texts(out)[0]
     assert "Colour" in final_title
     assert _heading_1_texts(out) == [final_title]
->>>>>>> Stashed changes
