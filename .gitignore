@@ -75,3 +75,6 @@ graphify-out/.graphify_root
 graphify-out/cost.json
 graphify-out/graph.js
 .ua/
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
