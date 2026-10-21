@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "run_type": "track-k-baseline",
+  "created_at": "2026-10-18T11:37:21.237176+00:00",
+  "corpus": "tests\\jutlp_sample_docx_test_pack",
+  "output_directory": "jutlp_baseline_results",
+  "document_count": 7,
+  "documents": [
+    "01_valid_identified.docx",
+    "02_missing_method_subsection.docx",
+    "03_front_page_issues.docx",
+    "04_structure_and_endmatter_issues.docx",
+    "05_valid_deidentified.docx",
+    "06_deidentified_author_leak.docx",
+    "06_deidentified_with_author_leak.docx"
+  ],
+  "git": {
+    "commit": "7693a31d3a71c8e4bda1d5f9a749f3d3a68e2077",
+    "branch": "main"
+  },
+  "environment": {
+    "python_version": "3.11.0",
+    "python_executable": "C:\\Users\\gurma\\OpenEditor\\venv\\Scripts\\python.exe",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "packages": [
+      "lxml==6.1.2",
+      "openai==3.3.1",
+      "python-docx==1.2.0"
+    ]
+  },
+  "llm": {
+    "mode": "on",
+    "api_key_set": true,
+    "env_api_key_set": true,
+    "client_api_key_set": true,
+    "model": "gpt-5.4-mini",
+    "temperature": "0.2",
+    "max_tokens": "16384"
+  },
+  "completed_at": "2026-10-18T11:41:56.019206+00:00",
+  "summary": {
+    "successful": 7,
+    "errors": 0
+  }
+}

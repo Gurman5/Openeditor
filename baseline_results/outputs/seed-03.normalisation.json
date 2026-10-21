@@ -1,0 +1,399 @@
+{
+  "accepted_revisions": 0,
+  "guidance_paragraphs_deleted": 0,
+  "blank_paragraphs_removed": 20,
+  "colour_strips": [
+    {
+      "paragraph_index": 65,
+      "snippet": "https://doi.org/10.1080/00221309909595358",
+      "value": "1155CC"
+    },
+    {
+      "paragraph_index": 80,
+      "snippet": "–5",
+      "value": "222222"
+    },
+    {
+      "paragraph_index": 81,
+      "snippet": "https://doi.org/10.3758/s13421-018-0886-5",
+      "value": "1155CC"
+    },
+    {
+      "paragraph_index": 82,
+      "snippet": "–",
+      "value": "222222"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "https://doi.org/10.1080/09658211.2016.1260746",
+      "value": "1155CC"
+    },
+    {
+      "paragraph_index": 85,
+      "snippet": "https://doi.org/10.3758/s13421-018-0891-8",
+      "value": "1155CC"
+    }
+  ],
+  "highlight_strips": [
+    {
+      "paragraph_index": 65,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 65,
+      "snippet": "Amrhein, P. C., Bond, J. K., & Hamilton, D. A. (1999). Locu…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 65,
+      "snippet": "Journal of General Psychology",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 65,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 65,
+      "snippet": "126",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 65,
+      "snippet": "(2), 149–",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 65,
+      "snippet": "164.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 65,
+      "snippet": "https://doi.org/10.1080/00221309909595358",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "Deese, J. (1959). On the prediction of occurrence of",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "particular verbal",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "intrusions in immediate recall.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "Journal of Experimental Psychology",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "58",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "(1), 17–2",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "2.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 67,
+      "snippet": "https://doi.org/10.1037/h0046671",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "Hasher, L., & Zacks, R. T. (1988). Working memory, comprehe…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "The psychology of learning and motivation: Advances in rese…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "(Vol. 22,",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "pp.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "193–225). Academic Press",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": ".",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 68,
+      "snippet": "https://doi.org/10.1016/S0079-7421(08)60041-9",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 77,
+      "snippet": "Riggs, K. M., Lachman, M. E., & Wingfield, A. (1997). Takin…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 77,
+      "snippet": "Experimental Aging Research",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 77,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 77,
+      "snippet": "23",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 77,
+      "snippet": "(3), 237–256.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 77,
+      "snippet": "https://doi.org/10.1080/03610739708254282",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 80,
+      "snippet": "–5",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 81,
+      "snippet": "Sahakyan, L. (2019). List-strength effects in older adults …",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 81,
+      "snippet": "Memory & Cognition",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 81,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 81,
+      "snippet": "47",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 81,
+      "snippet": "(4), 764–778.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 81,
+      "snippet": "https://doi.org/10.3758/s13421-018-0886-5",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 82,
+      "snippet": "–",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "Strickland-Hughes, C. M., West, R. L., Smith, K. A., & Ebne…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "Memory",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "25",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "(8), 1072–1088.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 83,
+      "snippet": "https://doi.org/10.1080/09658211.2016.1260746",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "Wagoner, B. (2013). Bartlett’s concept of schema in reconst…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "Theory &",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "P",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "sychology",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "23",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": "(5), 553–575",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 84,
+      "snippet": ".",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 85,
+      "snippet": "Ward, G., & Tan, L. (2019). Control processes in short-term…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 85,
+      "snippet": "Memory & Cognition",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 85,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 85,
+      "snippet": "47",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 85,
+      "snippet": "(4), 658–682.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 85,
+      "snippet": "https://doi.org/10.3758/s13421-018-0891-8",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": "Zhu, B., Chen, C., Loftus, E. F., Lin, C., & Dong, Q. (2013…",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": "Memory & Cognition",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": ",",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": "41",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": "(6), 832–838.",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": "",
+      "value": "clear"
+    },
+    {
+      "paragraph_index": 86,
+      "snippet": "https://doi.org/10.3758/s13421-013-0300-2",
+      "value": "clear"
+    }
+  ]
+}
