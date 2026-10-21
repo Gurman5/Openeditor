@@ -7812,38 +7812,54 @@ def _ensure_header_reference(sect_pr, rels_root, names, ref_type):
 
 
 def _make_page_number_header(header_xml):
-    """Return header XML carrying a right-aligned PAGE field (APA-05).
+    """Return header XML carrying a single right-aligned PAGE field (APA-05).
 
-    Existing header content is preserved; the PAGE paragraph is only appended
-    when the header does not already contain a PAGE field.
+    JB-04 (Joey revision): the header must be blank apart from the top-right
+    page number, so any pre-existing header content (running head, logo, etc.)
+    is removed. Footer content is left untouched.
     """
     if header_xml is None:
         hdr_root = etree.Element(f"{WQ}hdr", nsmap={"w": W})
     else:
         hdr_root = etree.fromstring(header_xml)
 
-    for field in hdr_root.iter(f"{WQ}fldSimple"):
-        if "PAGE" in field.get(f"{WQ}instr", ""):
-            return etree.tostring(
-                hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True
-            )
+    page_paragraph = None
+    for para in hdr_root.findall(f"{WQ}p"):
+        if any("PAGE" in (f.get(f"{WQ}instr", "") or "") for f in para.iter(f"{WQ}fldSimple")):
+            page_paragraph = para
+            break
+    if page_paragraph is None:
+        for para in hdr_root.findall(f"{WQ}p"):
+            if "PAGE" in "".join(t.text or "" for t in para.iter(f"{WQ}instrText")):
+                page_paragraph = para
+                break
 
-    paragraph = etree.SubElement(hdr_root, f"{WQ}p")
-    p_pr = etree.SubElement(paragraph, f"{WQ}pPr")
-    jc = etree.SubElement(p_pr, f"{WQ}jc")
+    # JB-04: blank the header — keep only the PAGE paragraph.
+    for child in list(hdr_root):
+        if child is page_paragraph:
+            continue
+        hdr_root.remove(child)
+
+    if page_paragraph is None:
+        page_paragraph = etree.SubElement(hdr_root, f"{WQ}p")
+
+    # Reduce the PAGE paragraph to a right-aligned PAGE field (also strips any
+    # running head that shared the paragraph with the page number).
+    p_pr = page_paragraph.find(f"{WQ}pPr")
+    if p_pr is None:
+        p_pr = etree.Element(f"{WQ}pPr")
+        page_paragraph.insert(0, p_pr)
+    jc = p_pr.find(f"{WQ}jc")
+    if jc is None:
+        jc = etree.Element(f"{WQ}jc")
+        p_pr.insert(0, jc)
     jc.set(f"{WQ}val", "right")
 
-    field = etree.SubElement(paragraph, f"{WQ}fldSimple")
-    field.set(f"{WQ}instr", " PAGE ")
-    run = etree.SubElement(field, f"{WQ}r")
-    r_pr = etree.SubElement(run, f"{WQ}rPr")
-    r_fonts = etree.SubElement(r_pr, f"{WQ}rFonts")
-    for attr in ("ascii", "hAnsi", "cs"):
-        r_fonts.set(f"{WQ}{attr}", BODY_REQUIRED_FONT_NAME)
-    size = etree.SubElement(r_pr, f"{WQ}sz")
-    size.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
-    text = etree.SubElement(run, f"{WQ}t")
-    text.text = "1"
+    for child in list(page_paragraph):
+        if child is p_pr:
+            continue
+        page_paragraph.remove(child)
+    page_paragraph.append(_make_page_field())
 
     return etree.tostring(hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
