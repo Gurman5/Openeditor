@@ -76,7 +76,10 @@ def test_student_title_page_is_centered_and_has_no_banner_or_textbox(tmp_path):
         )
 
 
-def test_professional_mode_adds_running_head_and_removes_student_metadata(tmp_path):
+def test_professional_mode_blanks_running_head_and_removes_student_metadata(tmp_path):
+    """JB-04 (Joey revision): even in professional mode the header stays blank
+    — top-right PAGE field only; the derived running head is no longer
+    installed. Student metadata lines are still removed."""
     source = tmp_path / "input.docx"
     output = tmp_path / "output.docx"
     shutil.copy("app/domain/APA7 Base Template.docx", source)
@@ -95,9 +98,60 @@ def test_professional_mode_adds_running_head_and_removes_student_metadata(tmp_pa
             if name.startswith("word/header") and name.endswith(".xml")
         ]
         assert headers
-        assert all(b"TITLE OF PAPER" in header for header in headers)
+        assert all(b"TITLE OF PAPER" not in header for header in headers)
         assert all(b"PAGE" in header for header in headers)
         assert all(b"blip" not in header for header in headers)
+        for header in headers:
+            for paragraph in _header_paragraphs(header):
+                jc = paragraph.find(f"{WQ}pPr/{WQ}jc")
+                assert jc is not None and jc.get(f"{WQ}val") == "right"
+
+
+def test_professional_full_order_keeps_header_blank_with_top_right_page(tmp_path):
+    """JB-04 full-order acceptance: the geometry pass blanks the header, then
+    the professional title-page pass runs — the final state for EVERY header
+    part must be exactly one paragraph, no running-head text, jc=right, and a
+    PAGE field (the old professional running head re-installed itself after
+    the geometry blanking; geometry BN → title page is the real build order)."""
+    source = tmp_path / "input.docx"
+    output = tmp_path / "output.docx"
+
+    doc = Document()
+    for name in ("Article Title", "Authors", "Author Affiliations"):
+        doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_paragraph("Building a Single Classroom for App Development", style="Article Title")
+    doc.add_paragraph("Michael Cowling and Joshua Newn", style="Authors")
+    doc.add_paragraph("RMIT University", style="Author Affiliations")
+    doc.add_paragraph("Introduction", style="Heading 1")
+    doc.add_paragraph("Body text.")
+
+    header = doc.sections[0].header
+    header.is_linked_to_previous = False
+    header.paragraphs[0].text = "Running Head: PRE-EXISTING RUNNING HEAD"
+
+    doc.save(source)
+
+    _run_title_page_pass(source, output, mode="professional")
+
+    with zipfile.ZipFile(output) as archive:
+        header_names = [
+            name
+            for name in archive.namelist()
+            if name.startswith("word/header") and name.endswith(".xml")
+        ]
+        assert header_names
+        for name in header_names:
+            paragraphs = _header_paragraphs(archive.read(name))
+            assert len(paragraphs) == 1
+            paragraph_text = _paragraph_text(paragraphs[0])
+            assert "PRE-EXISTING" not in paragraph_text
+            assert "Running Head" not in paragraph_text
+            assert "Building a Single Classroom" not in paragraph_text
+            jc = paragraphs[0].find(f"{WQ}pPr/{WQ}jc")
+            assert jc is not None and jc.get(f"{WQ}val") == "right"
+            assert "PAGE" in "".join(
+                f.get(f"{WQ}instr", "") or "" for f in paragraphs[0].iter(f"{WQ}fldSimple")
+            )
 
 
 def test_mode_override_beats_auto_detection(tmp_path):

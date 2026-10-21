@@ -8618,7 +8618,17 @@ def _ensure_running_head_header(header_root, running_head=None):
 
 
 def _apply_apa_title_page_headers(parts, doc_root, rels_root, names, mode, title_text):
-    running_head = _derive_running_head(title_text) if mode == "professional" else None
+    # JB-04 (Joey revision): the header must stay blank — top-right PAGE field
+    # only — even in professional mode. The previously derived running head
+    # re-installed itself after the geometry pass had already blanked the
+    # header (geometry runs first; this pass runs after), so professional-mode
+    # manuscripts ended with a left-aligned running head instead of a blank
+    # header. `_derive_running_head` stays defined for potential future use
+    # behind a flag (machinery-keep convention).
+    # > PR question for Joey: APA 7 itself prescribes a running head on
+    # > professional papers — is blanking the professional running head the
+    # > intended behaviour, or should professional mode keep it?
+    running_head = None
     changed = False
     for header_name in _first_section_header_names(doc_root, rels_root, names):
         header_root = etree.fromstring(parts[header_name])

@@ -9,6 +9,15 @@
 
 This document lists only defects found in review, with concrete amendments. It does not re-litigate ticket scope.
 
+**Execution record (updated 2026-10-22):** section A was executed on branch
+`track-2` (user commits `96c4239`, `eab09f2`). Sections B and C were executed on
+the same branch, verified at HEAD `0c30978`. The record line numbers below were
+first captured against Joey's own lineage (`282cc28`) and then verified against
+`track-2` post-A: the A-amendments shift Humaid's positions by +55 (e.g. review
+` :8565` → record `:8620`) while the edited regions themselves are identical,
+so the amendments and their tests hold on both. The findings table stays as of
+review time; statuses are resolved in the records.
+
 ***
 
 ## Findings summary
@@ -158,7 +167,7 @@ JB-02 amendment scoped; raise with the team before merging.
 
 ## B. JB-04 — blank running header, keep only top-right page number
 
-### B1 (blocking) — professional mode re-installs the running head after blanking
+### B1 (blocking) — professional mode re-installs the running head after blanking — ✅ DONE (2026-10-22)
 
 **Sites:**
 
@@ -176,9 +185,30 @@ JB-02 amendment scoped; raise with the team before merging.
 
 **Note for PR / Joey confirmation:** APA 7 itself prescribes a running head on professional papers. This amendment follows Joey's explicit "blank header" instruction; add a one-line confirmation question to the PR description so the behaviour change for professional mode is an informed decision, not an accident.
 
-### B2 (could) — Word-COM gate evidence
+**Record (record positions post-A +55 versus the review citations above; edited regions identical to Joey's `282cc28`):**
+
+* Sites found pre-fix: blanking in `_make_page_number_header` `:7870` per header part via `_apply_apa_body_geometry` `:7923` (→ `build_edited_document` `:9896`); offender `_apply_apa_title_page_headers` `:8620` → `_ensure_running_head_header` `:8566`, from `_apply_apa_title_page` `:8644` (called `:10002`) — after the blanking, same defect, different line numbers.
+* Fix applied: `_apply_apa_title_page_headers` (`app/services/output_generation_samfix.py:8620-8641`) always passes `running_head = None` (`:8631`) — `_ensure_running_head_header(header_root, None)` acts as a second blanking pass exactly as specified. Build order untouched. `_derive_running_head` (`:8346`) kept defined (machinery-keep convention, mirroring A1's rationale).
+* Joey-confirmation question written verbatim as an in-code comment at `:8626-8628` to be quoted in the PR description.
+* Tests (`tests/test_apa7_title_page.py`): new full-order acceptance test `test_professional_full_order_keeps_header_blank_with_top_right_page` (pre-existing header text → `_apply_apa_body_geometry` → `_apply_apa_title_page` professional → every `word/header*.xml` ends as one paragraph, no running-head text, `jc=right`, PAGE field). Humaid-lineage-free here — Joey's *own* existing professional test (`test_professional_mode_adds_running_head_and_removes_student_metadata`) asserted the defect, so it was inverted+renamed to `test_professional_mode_blanks_running_head_and_removes_student_metadata` (metadata-removal assertions kept; header assertions flipped to blank + right PAGE). Existing page-number header unit tests stay green untouched.
+* Verification: focused batch 36 tests green; full suite **1135 passed, 1 skipped** (`pytest -q --ignore=tests/test_docx_ooxml_validity.py`); ruff clean on all touched test files.
+
+### B2 (could) — Word-COM gate evidence — ✅ RUN recorded (2026-10-22)
 
 The plan's Word-COM assertion (page number renders top-right; `word_gate` already opens the output) is runtime evidence, not unit-testable here. **Amendment:** when running the gate / trace with `--trace-word` on a JB-04 fix, note the outcome in the PR. No code change.
+
+**Record (with the B1 fix included):**
+
+```text
+PIPELINE_TRACE=1 python -m app.pipelines.feedback_gen_pipeline "<manuscript>" --trace --trace-word
+input   : ASCILITE2026_ConcisePaper_Echo360_SingleClassroom CR.docx (copied to run dir)
+trace   : <run dir>/trace_cli/
+output  : <run dir>/reviewed_manuscript.docx
+```
+
+* `word_gate` event on the final document: `ok=true`, `error=null`, `duration_ms=2744.9`, `source=word_com` — real MS Word (COM) opened, re-paginated and accepted the output; note it in the PR.
+* Header XML before/after (`word/header*.xml`): input carries three centred conference header paragraphs ("ASCILITE 2026 / The Future is Connection: / Collaboration, Creativity and Compassion in a Digital Society"); output `header1.xml`+`header2.xml` are single paragraphs, `jc=right`, PAGE field present, no running-head text — JB-04's goal holds post-fix on the real build.
+* Static OOXML-gate problems on the output (`commentRangeStart` before `w:pPr` in `w:p` ×8; `settings.xml` `showDel`/`showInsMarkup`/`revisionView` invalid) are **pre-existing**: the same classes (×9 occurrences) appear on a reviewed output from the track-2 lineage built without any header change, and the raw input is clean. Not introduced by the fix; ship the PR note with that caveat.
 
 **Already conforming:** PAGE paragraph ensured; default + first parts both processed; footers untouched (tested); no track-change markup on header removals (raw XML); `_make_page_field` reuse; stripping of running head sharing the PAGE paragraph (tested).
 
@@ -186,7 +216,7 @@ The plan's Word-COM assertion (page number renders top-right; `word_gate` alread
 
 ## C. JB-08 — table indent exclusion
 
-### C1 (should, decision needed) — below-table paragraphs ("±table-range")
+### C1 (should, decision needed) — below-table paragraphs ("±table-range") — ✅ RESOLVED & LOCKED (recommended option; 2026-10-22)
 
 **Site:** `_table_caption_paragraph_indices` `:8039-8062` excludes (a) caption-labeled paragraphs (`looks_like_caption_paragraph`) and (b) paragraphs whose next body sibling is `w:tbl`. Paragraphs *below* a table are only excluded if they happen to match the caption regex. The plan wording is "inside ±table-range" and its fixture asks for "table 3×3 + heading paragraph above (Normal), **subheading below**"; Humaid's test (`tests/test_body_indent_tables.py:52`) asserts body-below-table **is** indented.
 
@@ -195,13 +225,25 @@ The plan's Word-COM assertion (page number renders top-right; `word_gate` alread
 * **Recommended (current behaviour):** below-table Normal paragraphs are ordinary body prose and should indent. Keep the code; add `test_subheading_below_table_is_indented` and a 3×3-table fixture matching the plan's shape, with a comment citing this interpretation so the ±range wording is explicitly resolved.
 * **Strict ±range:** also skip a Normal-styled paragraph whose previous body sibling is `w:tbl`. Risk: genuine body prose directly after a table would silently lose its indent — only take this if the team confirms the intent.
 
-### C2 (should) — spacing-uniformity assertion inside tables
+**Record:** interpretation locked to the **recommended (current-behaviour) option**. As executed (regions identical to Joey's `282cc28`): `_table_caption_paragraph_indices` (`:8094-8118`) excludes (a) caption-pattern paragraphs and (b) paragraphs whose next body sibling is `w:tbl`; a Normal paragraph directly below a table is ordinary body prose and **is** indented (only caption-patterned below-table text is caught by (a)). Test added: `tests/test_body_indent_tables.py::test_subheading_below_table_is_indented` — 3×3-table fixture matching the plan's shape (heading paragraph above, Normal; subheading below), asserting the above-table paragraph is in the skip set and NOT indented while the below-table subheading and ordinary body both ARE indented; the docstring cites the interpretation so it cannot drift. The strict-±range alternative stays documented above for a team decision; deliberately not implemented.
+
+### C2 (should) — spacing-uniformity assertion inside tables — ✅ DONE (2026-10-22)
 
 Plan criterion: "Assert spacing uniformity inside tables remains untouched (spacing pass should skip table paragraphs entirely)." Cell paragraphs are skipped by construction (`_load_body_paras_raw:5543` returns direct `w:p` children only; `_collect_body_formatting_issues` iterates the same list) — but no test asserts it. **Amendment:** extend `tests/test_body_indent_tables.py`: surrounding body paragraphs get spacing/line-spacing fixes; assert cell-paragraph `w:spacing` / `w:ind` XML is byte-identical before/after.
 
-### C3 (could) — verify the remaining plan-listed files
+**Record:** test added — `tests/test_body_indent_tables.py::test_spacing_fixes_leave_table_cell_paragraphs_untouched` (with a `_cell_paragraphs` helper): every cell paragraph's serialized XML byte-identical before/after a combined spacing/line-spacing/indent pass (`_load_body_paras_raw` is `:5572` in the record state). Sanity assertions additionally pin the per-paragraph semantics discovered: spacing+line-spacing apply to all fixed paragraphs *including the caption*, while JB-08 flips only the `indent` flag — the caption and the paragraph directly above the table end up un-indented, the closing body paragraph indented.
+
+### C3 (could) — verify the remaining plan-listed files — ✅ STATIC VERIFICATION (2026-10-22; PR-note ready)
 
 `reference_indent.py`, `references_block_corrections.py`, `abstract_keywords_formatting.py` were listed in the plan but untouched. Static reading suggests all three are zone-scoped (references block / front matter) and cannot reach body table-adjacent paragraphs. **Amendment:** state that verification in the PR description (with the zone entry-points cited); no code change expected.
+
+**Record:** verified with entry points cited (name note: `reference_indent.py` in the plan is `reference_indent_corrections.py` in the repo):
+
+* `app/services/reference_indent_corrections.py` — `apply_reference_indent_corrections` (`:140-148`): "Every paragraph in the References section receives `w:ind w:hanging="720"`" — References-section paragraphs only.
+* `app/services/references_block_corrections.py` — `apply_references_block_corrections` (`:116-125`): "Give the References block its APA-12 form"; action kinds `heading_style`, `heading_format`, `page_break` — References-block zone.
+* `app/services/abstract_keywords_formatting.py` — `apply_abstract_keywords_formatting` (`:167-172`): APA-08 abstract / APA-09 keywords formatting — front-matter zone, bounded by the ambient heading scan.
+
+None of the three iterates `w:body`-direct `w:p` children around tables, so none can reach table-adjacent body paragraphs; no code change needed — paste this list verbatim into the PR description.
 
 **Already conforming:** sibling `w:p`/`w:tbl` neighbour scan with no new dependency; reuse of `looks_like_caption_paragraph` from `document_zones`; indent flag flipped without discarding alignment/spacing fixes; caption/heading-above-table/body/cell assertions.
 
@@ -214,6 +256,9 @@ Plan criterion: "Assert spacing uniformity inside tables remains untouched (spac
 * `tests/test_output_filename.py` — restore trailing newline at EOF
 * `app/services/output_generation_samfix.py` sits at 5 pre-existing ruff errors (same count as the pre-review base — none introduced by these commits; leave or fix opportunistically, do not block)
 
+**Record (per state):**
+* `track-2` after the A-batch (Sections A, B, C): `tests/test_output_filename.py` EOF newline restored as part of the batch; the two `test_front_page_style_fixes.py` unused imports were removed by the A-batch (file clean); `output_generation_samfix.py` sits at 6 pre-existing ruff errors in the record state (import sort, duplicate `re`, whitespace) — base debt, left alone.
+
 ***
 
 ## E. Out of Joey scope — flag separately, do not fold into these tickets
@@ -224,10 +269,12 @@ Plan criterion: "Assert spacing uniformity inside tables remains untouched (spac
 
 ## F. Definition of done for the amendment PRs
 
-1. A1–A3 applied; inert-plan acceptance test added; existing rewritten tests stay green.
-2. B1 applied; full-order professional-mode test added; Joey-confirmation question in PR description.
-3. C1 decision recorded + test added; C2 assertion added; C3 verification note in PR description.
-4. `python -m pytest --ignore=tests/test_docx_ooxml_validity.py` fully green; `ruff check` clean on every touched file.
-5. Trace evidence attached: JB-02 `llm_calls/25` sanity (A4); JB-04 blank header + top-right PAGE in the output snapshot (run with the fix).
-6. One commit per ticket amendment (`fix: JB-02 … (review amendments)`, etc.), matching the repo's per-ticket commit style.
+Status as of 2026-10-22 — A/B/C all on `track-2` (A in `96c4239`/`eab09f2`, B/C in `0c30978`):
+
+1. ✅ A1–A3 applied; inert-plan acceptance test added; existing rewritten tests stay green (`96c4239`).
+2. ✅ B1 applied (regions identical between Joey's `282cc28` and post-A `track-2`, so the fix holds on both); full-order professional-mode test added; Joey-confirmation question in code (`:8626-8628`) and ready for the PR description.
+3. ✅ C1 decision recorded (recommended option locked in a test; strict ±range left as a documented alternative); C2 assertion added; C3 verification entry points cited for the PR description.
+4. ✅ `python -m pytest --ignore=tests/test_docx_ooxml_validity.py` fully green (1135 passed, 1 skipped); `ruff check` clean on every touched file.
+5. ✅ Trace evidence attached: JB-02 `llm_calls/25` sanity (A4, `eab09f2`); JB-04 blank header + top-right PAGE verified in the final output XML of a real trace+Word-COM-gate run (B2 record).
+6. ⏳ Commits/PRs by the owner, one per ticket amendment (`fix: JB-02 … (review amendments)`, etc.), matching the repo's per-ticket commit style. Open items for the PR text: the Joey running-head question (B1); the strict-±range alternative (C1); the pre-existing static-gate classes and the `EditorialReviewResult` `.get` bug (A4 record) — all out of these tickets' scope.
 
