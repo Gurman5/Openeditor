@@ -2,7 +2,6 @@ import zipfile
 from unittest.mock import patch
 
 from docx import Document
-from docx.enum.section import WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -15,7 +14,6 @@ from app.services.document_analysis_services import load_paragraphs
 from app.services.language_corrections import WQ
 from app.services.output_generation_samfix import (
     AFFILIATIONS_REQUIRED_STYLE_ID,
-    AUTHORS_REQUIRED_STYLE_ID,
     CITATION_FOOTER_STYLE_ID,
     KEYWORDS_REQUIRED_HEADING_STYLE_ID,
     KEYWORDS_REQUIRED_TEXT_STYLE_ID,
@@ -288,7 +286,7 @@ def test_remove_line_numbers_strips_section_setting(tmp_path):
     assert root.find(f".//{WQ}lnNumType") is None
 
 
-def test_missing_authors_inserts_default_placeholders_without_blank_line(tmp_path):
+def test_missing_authors_do_not_insert_default_placeholders(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
 
@@ -298,34 +296,17 @@ def test_missing_authors_inserts_default_placeholders_without_blank_line(tmp_pat
     doc.save(input_path)
 
     plan = build_author_check_plan(str(input_path))
-    assert plan["action"] == "insert_default_authors"
-    assert _apply_author_plan(str(input_path), str(output_path), plan) is True
+    assert plan["action"] == "none"
+    assert plan["corrected_authors_line"] == ""
+    assert _apply_author_plan(str(input_path), str(output_path), plan) is False
 
-    with zipfile.ZipFile(output_path, "r") as z:
-        root = etree.fromstring(z.read("word/document.xml"))
-
-    paragraphs = root.findall(f".//{WQ}body/{WQ}p")
-    texts = ["".join(t.text or "" for t in p.iter(f"{WQ}t")) for p in paragraphs]
-    styles = [p.find(f"{WQ}pPr/{WQ}pStyle") for p in paragraphs]
-
-    assert texts[:4] == [
-        "Example article title",
-        "First Authorᵃ, Second Authorᵃ, and Third Authorᵇ",
-        "a Affiliation 1; b Affiliation 2",
-        "Abstract",
-    ]
-    assert styles[1].get(f"{WQ}val") == AUTHORS_REQUIRED_STYLE_ID
-    assert styles[2].get(f"{WQ}val") == AFFILIATIONS_REQUIRED_STYLE_ID
-    assert paragraphs[1].find(f".//{WQ}commentReference") is not None
-    assert paragraphs[2].find(f".//{WQ}commentReference") is not None
-    assert load_paragraphs(str(output_path))[1].text == texts[1]
-    assert abstractFound(str(output_path))["affiliations_found"] is True
-    comments = _comment_texts(output_path)
-    assert any("Replace these placeholder author names" in text for text in comments)
-    assert any("Replace these placeholder affiliations" in text for text in comments)
+    texts = [p.text for p in load_paragraphs(str(input_path))]
+    assert texts[:2] == ["Example article title", "Abstract"]
+    assert all("First Author" not in t for t in texts)
+    assert all("Affiliation 1" not in t for t in texts)
 
 
-def test_missing_authors_before_unstyled_introduction_get_default_placeholders(tmp_path):
+def test_missing_authors_before_unstyled_introduction_do_not_insert_placeholders(tmp_path):
     input_path = tmp_path / "input.docx"
 
     doc = Document()
@@ -338,8 +319,7 @@ def test_missing_authors_before_unstyled_introduction_get_default_placeholders(t
 
     plan = build_author_check_plan(str(input_path))
 
-    assert plan["action"] == "insert_default_authors"
-    assert plan["default_affiliations"] == ("a Affiliation 1; b Affiliation 2",)
+    assert plan["action"] == "none"
 
 
 def test_proposal_title_and_author_labels_are_detected(tmp_path):
@@ -361,11 +341,10 @@ def test_proposal_title_and_author_labels_are_detected(tmp_path):
 
     assert title_state["anchor_pos"] == 2
     assert author_state["anchor_pos"] == 4
-    assert abstract_plan["insert_default_affiliations"] is True
-    assert abstract_plan["default_affiliations_insert_pos"] == 5
+    assert abstract_plan["insert_default_affiliations"] is False
 
 
-def test_missing_authors_removes_blank_spacer_before_abstract(tmp_path):
+def test_missing_authors_leave_blank_spacer_untouched(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
 
@@ -376,12 +355,12 @@ def test_missing_authors_removes_blank_spacer_before_abstract(tmp_path):
     doc.save(input_path)
 
     plan = build_author_check_plan(str(input_path))
-    assert _apply_author_plan(str(input_path), str(output_path), plan) is True
+    assert plan["action"] == "none"
+    assert _apply_author_plan(str(input_path), str(output_path), plan) is False
 
-    assert [p.text for p in load_paragraphs(str(output_path))][:4] == [
+    assert [p.text for p in load_paragraphs(str(input_path))][:3] == [
         "Example article title",
-        "First Authorᵃ, Second Authorᵃ, and Third Authorᵇ",
-        "a Affiliation 1; b Affiliation 2",
+        "",
         "Abstract",
     ]
 
@@ -422,7 +401,7 @@ def test_existing_valid_authors_directly_under_title_are_not_moved(tmp_path):
     assert plan["action"] == "none"
 
 
-def test_missing_authors_reuses_existing_affiliations(tmp_path):
+def test_missing_authors_with_existing_affiliations_do_not_insert(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
 
@@ -434,21 +413,20 @@ def test_missing_authors_reuses_existing_affiliations(tmp_path):
     doc.save(input_path)
 
     plan = build_author_check_plan(str(input_path))
-    assert plan["default_affiliations"] == ()
-    assert _apply_author_plan(str(input_path), str(output_path), plan) is True
+    assert plan["action"] == "none"
+    assert _apply_author_plan(str(input_path), str(output_path), plan) is False
 
-    texts = [p.text for p in load_paragraphs(str(output_path))]
+    texts = [p.text for p in load_paragraphs(str(input_path))]
     assert texts[:4] == [
         "Example article title",
-        "First Authorᵃ, Second Authorᵃ, and Third Authorᵇ",
         "a RMIT University, Australia",
         "b University X, Australia",
+        "Abstract",
     ]
-    assert "a Affiliation 1" not in texts
-    assert "b Affiliation 2" not in texts
+    assert all("First Author" not in t for t in texts)
 
 
-def test_missing_authors_adds_second_default_affiliation_when_only_one_exists(tmp_path):
+def test_missing_authors_do_not_append_second_default_affiliation(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
 
@@ -461,20 +439,17 @@ def test_missing_authors_adds_second_default_affiliation_when_only_one_exists(tm
     doc.save(input_path)
 
     plan = build_author_check_plan(str(input_path))
-    assert plan["default_affiliations"] == ()
-    assert plan["append_affiliation_text"] == "b Affiliation 2"
-    assert _apply_author_plan(str(input_path), str(output_path), plan) is True
+    assert plan["action"] == "none"
+    assert _apply_author_plan(str(input_path), str(output_path), plan) is False
 
-    assert [p.text for p in load_paragraphs(str(output_path))][:4] == [
+    assert [p.text for p in load_paragraphs(str(input_path))][:3] == [
         "Example article title",
-        "First Authorᵃ, Second Authorᵃ, and Third Authorᵇ",
-        "a RMIT University, Australia; b Affiliation 2\n*corresponding author",
+        "a RMIT University, Australia\n*corresponding author",
         "Abstract",
     ]
-    assert any("Replace these placeholder affiliations" in text for text in _comment_texts(output_path))
 
 
-def test_existing_authors_missing_affiliations_get_default_affiliation_paragraph(tmp_path):
+def test_existing_authors_missing_affiliations_get_comment_not_placeholder(tmp_path):
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
 
@@ -487,20 +462,77 @@ def test_existing_authors_missing_affiliations_get_default_affiliation_paragraph
     state = abstractFound(str(input_path))
     plan = abstractFormatCheck(str(input_path), state)
 
-    assert plan["insert_default_affiliations"] is True
+    assert plan["insert_default_affiliations"] is False
     assert _apply_abstract_plan(str(input_path), str(output_path), plan) is True
 
     paragraphs = load_paragraphs(str(output_path))
-    assert paragraphs[2].text == "a Affiliation 1; b Affiliation 2"
-    assert paragraphs[2].style == "Author Affiliations"
-    assert any("Replace these placeholder affiliations" in text for text in _comment_texts(output_path))
+    assert all("Affiliation 1" not in p.text and "Affiliation 2" not in p.text for p in paragraphs)
+    assert any("Author affiliations section was not found" in text for text in _comment_texts(output_path))
 
-    with zipfile.ZipFile(output_path, "r") as z:
-        root = etree.fromstring(z.read("word/document.xml"))
-    output_paragraphs = root.findall(f".//{WQ}body/{WQ}p")
-    p_style = output_paragraphs[2].find(f"{WQ}pPr/{WQ}pStyle")
-    assert p_style.get(f"{WQ}val") == AFFILIATIONS_REQUIRED_STYLE_ID
-    assert output_paragraphs[2].find(f".//{WQ}commentReference") is not None
+
+def test_insert_default_authors_plan_is_inert(tmp_path):
+    """Belt-and-braces: even a hand-built insert_default_authors plan must
+    not write anything — the apply branch is disabled (JB-02)."""
+    input_path = tmp_path / "input.docx"
+    output_path = tmp_path / "output.docx"
+
+    doc = Document()
+    doc.styles.add_style("Authors", WD_STYLE_TYPE.PARAGRAPH)
+    doc.styles.add_style("Author Affiliations", WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_paragraph("Example article title")
+    doc.add_paragraph("Abstract")
+    doc.save(input_path)
+
+    plan = {
+        "action": "insert_default_authors",
+        "message": "Default author placeholders inserted because authors were not found.",
+        "anchor_pos": 0,
+        "insert_pos": 1,
+        "reason": "Authors not found on front page",
+        "corrected_authors_line": "First Author^a, Second Author^a, and Third Author^b",
+        "default_affiliations": ("a Affiliation 1; b Affiliation 2",),
+        "authors_style_ok": True,
+        "authors_current_style": "",
+    }
+    assert _apply_author_plan(str(input_path), str(output_path), plan) is False
+    assert output_path.exists() is False
+
+
+@patch("app.services.output_generation_samfix.call_llm_json")
+def test_full_run_never_inserts_author_placeholders(mock_llm, tmp_path):
+    """JB-02 end-to-end: a document with no authors line and no affiliations
+    must come out with no placeholder author/affiliation text and no
+    placeholder comments."""
+    input_path = tmp_path / "input.docx"
+    output_path = tmp_path / "output.docx"
+
+    doc = Document()
+    doc.add_paragraph("Example article title")
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("This is the abstract body.")
+    doc.add_paragraph("Introduction").style = "Heading 1"
+    doc.add_paragraph("Body text.")
+    doc.add_paragraph("References").style = "Heading 1"
+    doc.add_paragraph("Smith, J. (2025). Example.")
+    doc.save(input_path)
+
+    mock_llm.side_effect = Exception("skip llm")
+    with patch("app.services.output_generation_samfix.build_body_edit_plan") as mock_body:
+        mock_body.return_value = {"action": "none", "edits": []}
+        with patch(
+            "app.services.output_generation_samfix.build_editorial_review_comment_plan"
+        ) as mock_review:
+            mock_review.return_value = {"action": "none", "comments": []}
+            build_edited_document(str(input_path), str(output_path))
+
+    paragraphs = [p.text for p in load_paragraphs(str(output_path))]
+    all_text = "\n".join(paragraphs)
+    assert "First Author" not in all_text
+    assert "Affiliation 1" not in all_text
+    assert "Affiliation 2" not in all_text
+    comments = _comment_texts(output_path)
+    assert not any("placeholder author" in text.lower() for text in comments)
+    assert not any("placeholder affiliation" in text.lower() for text in comments)
 
 
 def test_author_naming_rejects_multiple_affiliation_markers():

@@ -22,6 +22,7 @@ from app.services.ai.llm_client import call_llm_json
 from app.services.body_llm_edits import build_body_edit_plan
 from app.services.document_analysis_services import get_front_page, load_paragraphs
 from app.services.document_styling_fixes import extract_template_styles
+from app.services.document_zones import looks_like_caption_paragraph
 from app.services.editorial_review_comments import build_editorial_review_comment_plan
 from app.services.heading_corrections import apply_heading_corrections
 from app.services.language_corrections import AU_CORRECTIONS as _AU_CORRECTIONS
@@ -1635,36 +1636,53 @@ def authorFormatCheck(docxpath, author_state):
     global auth_start_pos, auth_end_pos
 
     if author_state["authors_present"] is False:
-        existing_affiliations = _find_existing_affiliations_for_missing_authors(
-            docxpath,
-            author_state["title_idx"],
-        )
-        if existing_affiliations is not None:
-            markers = existing_affiliations["markers"]
-            default_affiliations = ()
-            plan = {
-                "action": "insert_default_authors",
-                "message": "Default author placeholders inserted because authors were not found.",
-                "anchor_pos": author_state["anchor_pos"],
-                "insert_pos": existing_affiliations["first_pos"],
-                "reason": "Authors not found on front page",
-                "corrected_authors_line": _default_authors_line_for_markers(markers),
-                "default_affiliations": default_affiliations,
-                "authors_style_ok": True,
-                "authors_current_style": "",
-            }
-            if len(markers) == 1:
-                plan["append_affiliation_pos"] = existing_affiliations["last_pos"]
-                plan["append_affiliation_text"] = f"{_next_default_marker(markers[0])} Affiliation 2"
-            return plan
-
+        # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+        # manually placed author name and affiliation exactly as authored (e.g.
+        # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+        # "First Author^a…" placeholder blocks. Missing author/affiliation is
+        # covered by FP002/FP003 comment-only flags; they still report the
+        # missing block as comments.
+        #
+        # Previous behaviour (commented out, not deleted; Joey may want this
+        # behind a flag later):
+        #     existing_affiliations = _find_existing_affiliations_for_missing_authors(
+        #         docxpath,
+        #         author_state["title_idx"],
+        #     )
+        #     if existing_affiliations is not None:
+        #         markers = existing_affiliations["markers"]
+        #         default_affiliations = ()
+        #         plan = {
+        #             "action": "insert_default_authors",
+        #             "message": "Default author placeholders inserted because authors were not found.",
+        #             "anchor_pos": author_state["anchor_pos"],
+        #             "insert_pos": existing_affiliations["first_pos"],
+        #             "reason": "Authors not found on front page",
+        #             "corrected_authors_line": _default_authors_line_for_markers(markers),
+        #             "default_affiliations": default_affiliations,
+        #             "authors_style_ok": True,
+        #             "authors_current_style": "",
+        #         }
+        #         if len(markers) == 1:
+        #             plan["append_affiliation_pos"] = existing_affiliations["last_pos"]
+        #             plan["append_affiliation_text"] = f"{_next_default_marker(markers[0])} Affiliation 2"
+        #         return plan
+        #
+        #     return {
+        #         "action": "insert_default_authors",
+        #         "message": "Default author placeholders inserted because authors were not found.",
+        #         "anchor_pos": author_state["anchor_pos"],
+        #         "reason": "Authors not found on front page",
+        #         "corrected_authors_line": DEFAULT_AUTHORS_LINE,
+        #         "default_affiliations": DEFAULT_AUTHOR_AFFILIATIONS,
+        #         "authors_style_ok": True,
+        #         "authors_current_style": "",
+        #     }
         return {
-            "action": "insert_default_authors",
-            "message": "Default author placeholders inserted because authors were not found.",
+            "action": "none",
+            "reason": "Authors not found on front page (placeholder insertion disabled)",
             "anchor_pos": author_state["anchor_pos"],
-            "reason": "Authors not found on front page",
-            "corrected_authors_line": DEFAULT_AUTHORS_LINE,
-            "default_affiliations": DEFAULT_AUTHOR_AFFILIATIONS,
+            "corrected_authors_line": "",
             "authors_style_ok": True,
             "authors_current_style": "",
         }
@@ -2667,12 +2685,18 @@ def abstractFormatCheck(docxpath, abstract_state):
         )
         deidentified = _is_deidentified_manuscript(docxpath, abstract_state)
         default_affiliations_insert_pos = abstract_state["anchor_pos"]
-        if abstract_state["affiliations_found"] is False and not deidentified:
-            default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
-            if default_affiliations_text != "":
-                insert_default_affiliations = True
-                if auth_end_pos is not None:
-                    default_affiliations_insert_pos = auth_end_pos + 1
+        # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+        # manually placed author name and affiliation exactly as authored (e.g.
+        # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+        # "First Author^a…" placeholder blocks. Missing author/affiliation is
+        # covered by FP002/FP003 comment-only flags.
+        # JB-02 (Joey revision): default-affiliation insertion disabled
+        # if abstract_state["affiliations_found"] is False and not deidentified:
+        #     default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
+        #     if default_affiliations_text != "":
+        #         insert_default_affiliations = True
+        #         if auth_end_pos is not None:
+        #             default_affiliations_insert_pos = auth_end_pos + 1
         return {
             "action": "add_abstract_comment",
             "reason": "Abstract heading not found",
@@ -2688,14 +2712,21 @@ def abstractFormatCheck(docxpath, abstract_state):
 
     if abstract_state["affiliations_found"] is False:
         # Suppress the missing-affiliations query on deliberately deidentified
-        # manuscripts (blinded peer review). The editor already knows the
-        # affiliations are intentionally absent — flagging it adds noise.
+        # manuscripts (blinded peer review).
+        # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+        # manually placed author name and affiliation exactly as authored (e.g.
+        # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+        # "First Author^a…" placeholder blocks. Missing author/affiliation is
+        # covered by FP002/FP003 comment-only flags.
+        # JB-02 (Joey revision): do NOT insert placeholder affiliations
+        # keep the author's manually placed affiliations. Just note the absence.
+        #   default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
+        #   if default_affiliations_text != "":
+        #       insert_default_affiliations = True
+        #   else:
+        #       heading_comment_parts.append(...)
         if not deidentified:
-            default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
-            if default_affiliations_text != "":
-                insert_default_affiliations = True
-            else:
-                heading_comment_parts.append("Author affiliations section was not found, so Abstract position cannot be verified.")
+            heading_comment_parts.append("Author affiliations section was not found, so Abstract position cannot be verified.")
     elif abstract_state["abstract_follows_affiliations"] is False:
         heading_comment_parts.append("Abstract should follow the author affiliations section on the front page.")
 
@@ -6798,64 +6829,71 @@ def _apply_author_plan(input_path, output_path, plan):
         new_xml = etree.tostring(doc.element, xml_declaration=True, encoding="UTF-8", standalone=True)
         _save_doc_xml_to_zip(src_path, output_path, new_xml)
 
-    if action == "insert_default_authors":
-        insert_at = min(plan.get("insert_pos", anchor + 1), len(doc.paragraphs))
-        _remove_blank_paragraph_at_index(doc, insert_at)
-        _insert_paragraph_at_index(
-            doc,
-            insert_at,
-            _make_plain_styled_paragraph(
-                plan["corrected_authors_line"],
-                AUTHORS_REQUIRED_STYLE_ID,
-            ),
-        )
-        append_pos = plan.get("append_affiliation_pos")
-        if append_pos is not None:
-            if append_pos >= insert_at:
-                append_pos += 1
-            if append_pos < len(doc.paragraphs):
-                paragraph = doc.paragraphs[append_pos]
-                new_text = _append_affiliation_before_notes(
-                    paragraph.text,
-                    plan.get("append_affiliation_text", ""),
-                )
-                _remove_paragraph_content_keep_style(paragraph._element)
-                _append_text_with_line_breaks(paragraph._element, new_text)
-
-        affiliations_insert_at = plan.get("affiliations_insert_pos")
-        if affiliations_insert_at is None:
-            affiliations_insert_at = insert_at + 1
-        elif affiliations_insert_at > insert_at:
-            affiliations_insert_at += 1
-        for i, line in enumerate(plan.get("default_affiliations", []), start=1):
-            _insert_paragraph_at_index(
-                doc,
-                affiliations_insert_at + i - 1,
-                _make_plain_styled_paragraph(line, AFFILIATIONS_REQUIRED_STYLE_ID),
-            )
-
-        _flush(current_input_path)
-        _write_single_comment_docx(
-            input_path=output_path,
-            output_path=output_path,
-            paragraph_index=insert_at,
-            message="Replace these placeholder author names with the correct author list.",
-        )
-        if len(plan.get("default_affiliations", [])) > 0:
-            _write_single_comment_docx(
-                input_path=output_path,
-                output_path=output_path,
-                paragraph_index=affiliations_insert_at,
-                message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
-            )
-        elif append_pos is not None:
-            _write_single_comment_docx(
-                input_path=output_path,
-                output_path=output_path,
-                paragraph_index=append_pos,
-                message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
-            )
-        return True
+    # > Joey: placeholder author/affiliation insertion is inactive (JB-02).
+    # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+    # manually placed author name and affiliation exactly as authored (e.g.
+    # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+    # "First Author^a…" placeholder blocks — FP002/FP003 carry the
+    # missing-block messaging. Guard stays commented out (not deleted); even a
+    # hand-built plan must not insert. Joey may want this behind a flag later.
+    # if action == "insert_default_authors":
+    #     insert_at = min(plan.get("insert_pos", anchor + 1), len(doc.paragraphs))
+    #     _remove_blank_paragraph_at_index(doc, insert_at)
+    #     _insert_paragraph_at_index(
+    #         doc,
+    #         insert_at,
+    #         _make_plain_styled_paragraph(
+    #             plan["corrected_authors_line"],
+    #             AUTHORS_REQUIRED_STYLE_ID,
+    #         ),
+    #     )
+    #     append_pos = plan.get("append_affiliation_pos")
+    #     if append_pos is not None:
+    #         if append_pos >= insert_at:
+    #             append_pos += 1
+    #         if append_pos < len(doc.paragraphs):
+    #             paragraph = doc.paragraphs[append_pos]
+    #             new_text = _append_affiliation_before_notes(
+    #                 paragraph.text,
+    #                 plan.get("append_affiliation_text", ""),
+    #             )
+    #             _remove_paragraph_content_keep_style(paragraph._element)
+    #             _append_text_with_line_breaks(paragraph._element, new_text)
+    #
+    #     affiliations_insert_at = plan.get("affiliations_insert_pos")
+    #     if affiliations_insert_at is None:
+    #         affiliations_insert_at = insert_at + 1
+    #     elif affiliations_insert_at > insert_at:
+    #         affiliations_insert_at += 1
+    #     for i, line in enumerate(plan.get("default_affiliations", []), start=1):
+    #         _insert_paragraph_at_index(
+    #             doc,
+    #             affiliations_insert_at + i - 1,
+    #             _make_plain_styled_paragraph(line, AFFILIATIONS_REQUIRED_STYLE_ID),
+    #         )
+    #
+    #     _flush(current_input_path)
+    #     _write_single_comment_docx(
+    #         input_path=output_path,
+    #         output_path=output_path,
+    #         paragraph_index=insert_at,
+    #         message="Replace these placeholder author names with the correct author list.",
+    #     )
+    #     if len(plan.get("default_affiliations", [])) > 0:
+    #         _write_single_comment_docx(
+    #             input_path=output_path,
+    #             output_path=output_path,
+    #             paragraph_index=affiliations_insert_at,
+    #             message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
+    #         )
+    #     elif append_pos is not None:
+    #         _write_single_comment_docx(
+    #             input_path=output_path,
+    #             output_path=output_path,
+    #             paragraph_index=append_pos,
+    #             message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
+    #         )
+    #     return True
 
     if action == "replace_in_place":
         if anchor < len(doc.paragraphs):
@@ -7002,27 +7040,34 @@ def _apply_abstract_plan(input_path, output_path, abstract_plan):
         if style_applied is True:
             current_input_path = output_path
             applied_any = True
-
-    if abstract_plan.get("insert_default_affiliations") is True:
-        affiliation_text = str(abstract_plan.get("default_affiliations_text", "")).strip()
-        if affiliation_text != "":
-            insert_at = abstract_plan.get("default_affiliations_insert_pos", 0)
-            _insert_raw_body_paragraph(
-                current_input_path,
-                output_path,
-                insert_at,
-                _make_plain_styled_paragraph(affiliation_text, AFFILIATIONS_REQUIRED_STYLE_ID),
-            )
-            current_input_path = output_path
-            applied_any = True
-            _shift_abstract_plan_positions_after_insert(abstract_plan, insert_at)
-            _write_single_comment_docx(
-                input_path=current_input_path,
-                output_path=output_path,
-                paragraph_index=insert_at,
-                message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
-            )
-            current_input_path = output_path
+    # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+    # manually placed author name and affiliation exactly as authored (e.g.
+    # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+    # "First Author^a…" placeholder blocks. Missing author/affiliation is
+    # covered by FP002/FP003 comment-only flags.
+    
+    # ? JB-02 (Joey revision): default-affiliation insertion call path disabled.
+    #
+    # if abstract_plan.get("insert_default_affiliations") is True:
+    #     affiliation_text = str(abstract_plan.get("default_affiliations_text", "")).strip()
+    #     if affiliation_text != "":
+    #         insert_at = abstract_plan.get("default_affiliations_insert_pos", 0)
+    #         _insert_raw_body_paragraph(
+    #             current_input_path,
+    #             output_path,
+    #             insert_at,
+    #             _make_plain_styled_paragraph(affiliation_text, AFFILIATIONS_REQUIRED_STYLE_ID),
+    #         )
+    #         current_input_path = output_path
+    #         applied_any = True
+    #         _shift_abstract_plan_positions_after_insert(abstract_plan, insert_at)
+    #         _write_single_comment_docx(
+    #             input_path=current_input_path,
+    #             output_path=output_path,
+    #             paragraph_index=insert_at,
+    #             message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
+    #         )
+    #         current_input_path = output_path
 
     if action == "none":
         return applied_any
@@ -7843,38 +7888,54 @@ def _ensure_header_reference(sect_pr, rels_root, names, ref_type):
 
 
 def _make_page_number_header(header_xml):
-    """Return header XML carrying a right-aligned PAGE field (APA-05).
+    """Return header XML carrying a single right-aligned PAGE field (APA-05).
 
-    Existing header content is preserved; the PAGE paragraph is only appended
-    when the header does not already contain a PAGE field.
+    JB-04 (Joey revision): the header must be blank apart from the top-right
+    page number, so any pre-existing header content (running head, logo, etc.)
+    is removed. Footer content is left untouched.
     """
     if header_xml is None:
         hdr_root = etree.Element(f"{WQ}hdr", nsmap={"w": W})
     else:
         hdr_root = etree.fromstring(header_xml)
 
-    for field in hdr_root.iter(f"{WQ}fldSimple"):
-        if "PAGE" in field.get(f"{WQ}instr", ""):
-            return etree.tostring(
-                hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True
-            )
+    page_paragraph = None
+    for para in hdr_root.findall(f"{WQ}p"):
+        if any("PAGE" in (f.get(f"{WQ}instr", "") or "") for f in para.iter(f"{WQ}fldSimple")):
+            page_paragraph = para
+            break
+    if page_paragraph is None:
+        for para in hdr_root.findall(f"{WQ}p"):
+            if "PAGE" in "".join(t.text or "" for t in para.iter(f"{WQ}instrText")):
+                page_paragraph = para
+                break
 
-    paragraph = etree.SubElement(hdr_root, f"{WQ}p")
-    p_pr = etree.SubElement(paragraph, f"{WQ}pPr")
-    jc = etree.SubElement(p_pr, f"{WQ}jc")
+    # JB-04: blank the header — keep only the PAGE paragraph.
+    for child in list(hdr_root):
+        if child is page_paragraph:
+            continue
+        hdr_root.remove(child)
+
+    if page_paragraph is None:
+        page_paragraph = etree.SubElement(hdr_root, f"{WQ}p")
+
+    # Reduce the PAGE paragraph to a right-aligned PAGE field (also strips any
+    # running head that shared the paragraph with the page number).
+    p_pr = page_paragraph.find(f"{WQ}pPr")
+    if p_pr is None:
+        p_pr = etree.Element(f"{WQ}pPr")
+        page_paragraph.insert(0, p_pr)
+    jc = p_pr.find(f"{WQ}jc")
+    if jc is None:
+        jc = etree.Element(f"{WQ}jc")
+        p_pr.insert(0, jc)
     jc.set(f"{WQ}val", "right")
 
-    field = etree.SubElement(paragraph, f"{WQ}fldSimple")
-    field.set(f"{WQ}instr", " PAGE ")
-    run = etree.SubElement(field, f"{WQ}r")
-    r_pr = etree.SubElement(run, f"{WQ}rPr")
-    r_fonts = etree.SubElement(r_pr, f"{WQ}rFonts")
-    for attr in ("ascii", "hAnsi", "cs"):
-        r_fonts.set(f"{WQ}{attr}", BODY_REQUIRED_FONT_NAME)
-    size = etree.SubElement(r_pr, f"{WQ}sz")
-    size.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
-    text = etree.SubElement(run, f"{WQ}t")
-    text.text = "1"
+    for child in list(page_paragraph):
+        if child is p_pr:
+            continue
+        page_paragraph.remove(child)
+    page_paragraph.append(_make_page_field())
 
     return etree.tostring(hdr_root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
@@ -8050,6 +8111,31 @@ def _apply_body_run_format(run_element, fix):
         sz_cs = _find_or_make_child(r_pr, f"{WQ}szCs")
         sz_cs.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
 
+def _table_caption_paragraph_indices(doc_root, body_paras):
+    """Indices (into body_paras) of paragraphs that are captions or sit
+    directly above a table so these must not receive a first-line indent.
+
+    JB-08 (Joey revision): table headings/subheadings/captions are excluded from
+    indenting. Cell paragraphs never reach here: body_paras only holds
+    direct w:p children of w:body.
+    """
+    body = doc_root.find(f"{WQ}body")
+    if body is None:
+        return set()
+    children = [el for el in body if el.tag in (f"{WQ}p", f"{WQ}tbl")]
+    para_index = {id(el): i for i, el in enumerate(body_paras)}
+    skip = set()
+    for pos, el in enumerate(children):
+        if el.tag != f"{WQ}p":
+            continue
+        idx = para_index.get(id(el))
+        if idx is None:
+            continue
+        if looks_like_caption_paragraph(el):
+            skip.add(idx)
+        elif pos + 1 < len(children) and children[pos + 1].tag == f"{WQ}tbl":
+            skip.add(idx)
+    return skip
 
 def _apply_tracked_body_format_fixes(input_path, output_path, format_fixes, change_id_start):
     if format_fixes is None:
@@ -8061,6 +8147,7 @@ def _apply_tracked_body_format_fixes(input_path, output_path, format_fixes, chan
     changed = False
     change_id = change_id_start
     seen_positions = set()
+    skip_indent_indices = _table_caption_paragraph_indices(doc_root, body_paras)
 
     for fix in format_fixes:
         paragraph_index = fix.get("paragraph_index")
@@ -8073,18 +8160,24 @@ def _apply_tracked_body_format_fixes(input_path, output_path, format_fixes, chan
 
         para_element = body_paras[paragraph_index]
 
+        # JB-08: never first-line-indent table captions/headings/subheadings.
+        effective_fix = fix
+        if paragraph_index in skip_indent_indices and fix.get("indent") is True:
+            effective_fix = dict(fix)
+            effective_fix["indent"] = False
+
         paragraph_change_needed = False
-        if fix.get("alignment") is True:
+        if effective_fix.get("alignment") is True:
             paragraph_change_needed = True
-        if fix.get("line_spacing") is True:
+        if effective_fix.get("line_spacing") is True:
             paragraph_change_needed = True
-        if fix.get("spacing") is True:
+        if effective_fix.get("spacing") is True:
             paragraph_change_needed = True
-        if fix.get("indent") is True:
+        if effective_fix.get("indent") is True:
             paragraph_change_needed = True
 
         if paragraph_change_needed is True:
-            _apply_tracked_body_paragraph_format(para_element, fix, change_id)
+            _apply_tracked_body_paragraph_format(para_element, effective_fix, change_id)
             change_id += 1
             changed = True
 
@@ -8545,7 +8638,17 @@ def _ensure_running_head_header(header_root, running_head=None):
 
 
 def _apply_apa_title_page_headers(parts, doc_root, rels_root, names, mode, title_text):
-    running_head = _derive_running_head(title_text) if mode == "professional" else None
+    # JB-04 (Joey revision): the header must stay blank — top-right PAGE field
+    # only — even in professional mode. The previously derived running head
+    # re-installed itself after the geometry pass had already blanked the
+    # header (geometry runs first; this pass runs after), so professional-mode
+    # manuscripts ended with a left-aligned running head instead of a blank
+    # header. `_derive_running_head` stays defined for potential future use
+    # behind a flag (machinery-keep convention).
+    # > PR question for Joey: APA 7 itself prescribes a running head on
+    # > professional papers — is blanking the professional running head the
+    # > intended behaviour, or should professional mode keep it?
+    running_head = None
     changed = False
     for header_name in _first_section_header_names(doc_root, rels_root, names):
         header_root = etree.fromstring(parts[header_name])

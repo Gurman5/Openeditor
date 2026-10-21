@@ -5,6 +5,7 @@ from docx.enum.style import WD_STYLE_TYPE
 
 from app.services.output_filename import (
     _first_author_last_name,
+    _is_placeholder_author_line,
     build_output_filename,
     build_output_filename_from_author_line,
 )
@@ -130,3 +131,26 @@ def test_corrected_author_line_uses_doc_without_superscript_markers(tmp_path):
     )
 
     assert filename == "Polly_APA7_2026_CopyEdit1.docx"
+
+
+def test_placeholder_author_line_is_ignored(tmp_path):
+    docx_path = tmp_path / "input.docx"
+
+    doc = Document()
+    doc.add_paragraph("Article title")
+    doc.add_paragraph("Michael Cowling and Joshua Newn")
+    doc.add_paragraph("RMIT University")
+    doc.add_paragraph("Citation")
+    doc.add_paragraph("Example citation (2026).")
+    doc.save(docx_path)
+
+    assert _is_placeholder_author_line("First Author^a, Second Author^a, and Third Author^b") is True
+    assert _is_placeholder_author_line("Michael Cowling and Joshua Newn") is False
+
+    filename = build_output_filename_from_author_line(
+        str(docx_path),
+        str(tmp_path),
+        "First Author^a, Second Author^a, and Third Author^b",
+    )
+
+    assert filename == "Cowling_APA7_2026_CopyEdit1.docx"

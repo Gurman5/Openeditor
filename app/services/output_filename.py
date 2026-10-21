@@ -7,7 +7,10 @@ from docx import Document
 from app.services.document_analysis_services import get_front_page, load_paragraphs
 
 JOURNAL_NAME = "APA7"
+_PLACEHOLDER_AUTHOR_RE = re.compile(r"First\s+(Author|I\.\s+Last)", re.IGNORECASE)
 
+def _is_placeholder_author_line(author_line: str) -> bool:
+    return _PLACEHOLDER_AUTHOR_RE.search(author_line or "") is not None
 
 def _remove_superscript_runs_from_author_line(docx_path: str, paragraph_index: int | None, fallback: str):
     if paragraph_index is None:
@@ -171,7 +174,7 @@ def build_output_filename_from_author_line(
     author_line: str,
     ignore_path: str | None = None,
 ) -> str:
-    if author_line.strip() == "":
+    if author_line.strip() == "" or _is_placeholder_author_line(author_line):
         return build_output_filename(docx_path, output_dir, ignore_path)
     doc_author_line, markers, author_style_found, removed_superscript = _get_author_line_and_markers(docx_path)
     if author_style_found is True and removed_superscript is True:
