@@ -23,7 +23,6 @@ from app.services.caption_apa7_check import apply_caption_apa7_comments
 from app.services.decimal_corrections import apply_decimal_corrections
 from app.services.dev import word_gate as dev_word_gate
 from app.services.document_normalisation_services import normalise_docx
-from app.services.figure_apa7_check import apply_figure_apa7_comments
 from app.services.grammar_corrections import apply_contingent_grammar_comments
 from app.services.heading_corrections import apply_heading_corrections
 from app.services.language_corrections import AUTHOR, DATE, apply_au_spelling_corrections
@@ -1117,20 +1116,6 @@ def doc_analysis_pipeline(
         _progress(96, "finalizing")
     except Exception as exc:
         _record_stage_error("Table section boundary check", exc)
-
-    # Flag figures missing APA 7 block requirements (JB-09): bold label,
-    # italic title, description, and an in-text reference before it appears.
-    # Comment-only.
-    figure_apa7_actions: list[dict] = []
-    try:
-        with stage("figures_apa7", fn="app.services.figure_apa7_check.apply_figure_apa7_comments") as st:
-            next_lang_id, figure_apa7_actions = apply_figure_apa7_comments(
-                resolved_output_path, resolved_output_path, next_lang_id
-            )
-            st.count(len(figure_apa7_actions))
-        _progress(96, "finalizing")
-    except Exception as exc:
-        _record_stage_error("Figure APA7 check", exc)
 
     # Stop tables (and their header rows) from splitting awkwardly across a
     # page boundary: cantSplit on rows, tblHeader on the first row so a long
