@@ -640,14 +640,14 @@ def _reconcile_comment_sidecars(docx_path: str) -> None:
     """Ensure comment sidecars and their relationships are synchronized, stripped if unused, or pruned of orphans."""
     SIDECAR_KEYS = ("commentsExtended", "commentsIds", "commentsExtensible")
     SIDECAR_FILES = tuple(f"word/{key}.xml" for key in SIDECAR_KEYS)
-    
+
     with zipfile.ZipFile(docx_path, "r") as z:
         names = z.namelist()
         has_comments = "word/comments.xml" in names
-        
+
         valid_para_ids = set()
         has_any_para_id = False
-        
+
         if has_comments:
             try:
                 comments_root = etree.fromstring(z.read("word/comments.xml"))
@@ -741,6 +741,50 @@ def _reconcile_comment_sidecars(docx_path: str) -> None:
                 os.remove(tmp)
             raise
 
+def _count_llm_notes(review_result) -> int:
+    """Count editorial notes without assuming a result shape.
+
+    Shapes seen in the wild:
+      - ``EditorialReviewResult`` dataclass (``notes`` attribute)
+      - legacy dict payloads carrying a ``"notes"`` list
+      - ``None`` (review skipped or failed)
+    """
+    if review_result is None:
+        return 0
+    notes = getattr(review_result, "notes", None)
+    if notes is None and isinstance(review_result, dict):
+        notes = review_result.get("notes")
+    return len(notes or [])
+
+
+def _run_llm_editorial_review_stage(
+    docx_path,
+    deterministic_check_result,
+    ref_check_result,
+    stage,
+    on_stage_error,
+):
+    """Run the LLM editorial-review stage, isolating review failures.
+
+    Returns the review result on success, or ``None`` when the stage failed;
+    failures are reported through ``on_stage_error`` so the caller's
+    ``stage_errors`` list stays authoritative.
+    """
+    llm_result = None
+    try:
+        with stage("llm_editorial_review", fn="editorial_review_service.run_editorial_review") as st:
+            llm_result = run_editorial_review(
+                docx_path,
+                deterministic_check_result=deterministic_check_result,
+                ref_check_result=ref_check_result,
+            )
+            st.meta(notes=_count_llm_notes(llm_result))
+    except Exception as exc:
+        on_stage_error("Editorial review (AI)", exc, severity="critical")
+        llm_result = None
+    return llm_result
+
+
 def doc_analysis_pipeline(
     path_to_doc: str | Path,
     output_path: str | Path | None = None,
@@ -810,17 +854,14 @@ def doc_analysis_pipeline(
 
         # ── Phase 2: LLM editorial review (needs validate + ref results) ─────────
         _progress(48, "llm")
-        try:
-            with stage("llm_editorial_review", fn="editorial_review_service.run_editorial_review") as st:
-                llm_result = run_editorial_review(
-                    docx_path,
-                    deterministic_check_result=deterministic_check_results,
-                    ref_check_result=ref_check_result,
-                )
-                st.meta(notes=len((llm_result or {}).get("notes") or []))
-        except Exception as exc:
-            _record_stage_error("Editorial review (AI)", exc, severity="critical")
-            llm_result = None
+        llm_result = _run_llm_editorial_review_stage(
+            docx_path,
+            deterministic_check_result=deterministic_check_results,
+            ref_check_result=ref_check_result,
+            stage=stage,
+            on_stage_error=_record_stage_error,
+        )
+        if llm_result is None:
             _progress(68, "building")
 
         # ── Phase 3: Sequential document assembly ────────────────────────────────
