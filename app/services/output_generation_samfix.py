@@ -1637,36 +1637,22 @@ def authorFormatCheck(docxpath, author_state):
     global auth_start_pos, auth_end_pos
 
     if author_state["authors_present"] is False:
-        existing_affiliations = _find_existing_affiliations_for_missing_authors(
-            docxpath,
-            author_state["title_idx"],
-        )
-        if existing_affiliations is not None:
-            markers = existing_affiliations["markers"]
-            default_affiliations = ()
-            plan = {
-                "action": "insert_default_authors",
-                "message": "Default author placeholders inserted because authors were not found.",
-                "anchor_pos": author_state["anchor_pos"],
-                "insert_pos": existing_affiliations["first_pos"],
-                "reason": "Authors not found on front page",
-                "corrected_authors_line": _default_authors_line_for_markers(markers),
-                "default_affiliations": default_affiliations,
-                "authors_style_ok": True,
-                "authors_current_style": "",
-            }
-            if len(markers) == 1:
-                plan["append_affiliation_pos"] = existing_affiliations["last_pos"]
-                plan["append_affiliation_text"] = f"{_next_default_marker(markers[0])} Affiliation 2"
-            return plan
-
+        # JB-02 keep the manually placed author name and
+        # affiliation (e.g. "Michael Cowling and Joshua Newn, RMIT University").
+        # The function that *adds* an Authors/Affiliations requirement is
+        # intentionally INACTIVE — no "First Author^…" placeholder block and no
+        # default-affiliation paragraph are inserted. FP002/FP003 still report
+        # the missing block as comments.
+        #
+        # Previous behaviour (commented out, not deleted):
+        #   existing_affiliations = _find_existing_affiliations_for_missing_authors(...)
+        #   ... plan = {"action": "insert_default_authors", ...}
+        #   ... plan = {"action": "insert_default_authors", ..., "corrected_authors_line": DEFAULT_AUTHORS_LINE, ...}
         return {
-            "action": "insert_default_authors",
-            "message": "Default author placeholders inserted because authors were not found.",
+            "action": "none",
+            "reason": "Authors not found on front page (placeholder insertion disabled)",
             "anchor_pos": author_state["anchor_pos"],
-            "reason": "Authors not found on front page",
-            "corrected_authors_line": DEFAULT_AUTHORS_LINE,
-            "default_affiliations": DEFAULT_AUTHOR_AFFILIATIONS,
+            "corrected_authors_line": "",
             "authors_style_ok": True,
             "authors_current_style": "",
         }
@@ -2661,12 +2647,13 @@ def abstractFormatCheck(docxpath, abstract_state):
         message = "Missing 'Abstract' heading on the front page after author affiliations."
         deidentified = _is_deidentified_manuscript(docxpath, abstract_state)
         default_affiliations_insert_pos = abstract_state["anchor_pos"]
-        if abstract_state["affiliations_found"] is False and not deidentified:
-            default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
-            if default_affiliations_text != "":
-                insert_default_affiliations = True
-                if auth_end_pos is not None:
-                    default_affiliations_insert_pos = auth_end_pos + 1
+        # JB-02 (Joey revision): default-affiliation insertion disabled
+        # if abstract_state["affiliations_found"] is False and not deidentified:
+        #     default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
+        #     if default_affiliations_text != "":
+        #         insert_default_affiliations = True
+        #         if auth_end_pos is not None:
+        #             default_affiliations_insert_pos = auth_end_pos + 1
         return {
             "action": "add_abstract_comment",
             "reason": "Abstract heading not found",
@@ -2682,14 +2669,16 @@ def abstractFormatCheck(docxpath, abstract_state):
 
     if abstract_state["affiliations_found"] is False:
         # Suppress the missing-affiliations query on deliberately deidentified
-        # manuscripts (blinded peer review). The editor already knows the
-        # affiliations are intentionally absent — flagging it adds noise.
+        # manuscripts (blinded peer review).
+        # JB-02 (Joey revision): do NOT insert placeholder affiliations
+        # keep the author's manually placed affiliations. Just note the absence.
+        #   default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
+        #   if default_affiliations_text != "":
+        #       insert_default_affiliations = True
+        #   else:
+        #       heading_comment_parts.append(...)
         if not deidentified:
-            default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
-            if default_affiliations_text != "":
-                insert_default_affiliations = True
-            else:
-                heading_comment_parts.append("Author affiliations section was not found, so Abstract position cannot be verified.")
+            heading_comment_parts.append("Author affiliations section was not found, so Abstract position cannot be verified.")
     elif abstract_state["abstract_follows_affiliations"] is False:
         heading_comment_parts.append("Abstract should follow the author affiliations section on the front page.")
 
@@ -6982,27 +6971,27 @@ def _apply_abstract_plan(input_path, output_path, abstract_plan):
         if style_applied is True:
             current_input_path = output_path
             applied_any = True
-
-    if abstract_plan.get("insert_default_affiliations") is True:
-        affiliation_text = str(abstract_plan.get("default_affiliations_text", "")).strip()
-        if affiliation_text != "":
-            insert_at = abstract_plan.get("default_affiliations_insert_pos", 0)
-            _insert_raw_body_paragraph(
-                current_input_path,
-                output_path,
-                insert_at,
-                _make_plain_styled_paragraph(affiliation_text, AFFILIATIONS_REQUIRED_STYLE_ID),
-            )
-            current_input_path = output_path
-            applied_any = True
-            _shift_abstract_plan_positions_after_insert(abstract_plan, insert_at)
-            _write_single_comment_docx(
-                input_path=current_input_path,
-                output_path=output_path,
-                paragraph_index=insert_at,
-                message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
-            )
-            current_input_path = output_path
+    # JB-02 (Joey revision): default-affiliation insertion call path disabled.
+    # if abstract_plan.get("insert_default_affiliations") is True:
+    #     affiliation_text = str(abstract_plan.get("default_affiliations_text", "")).strip()
+    #     if affiliation_text != "":
+    #         insert_at = abstract_plan.get("default_affiliations_insert_pos", 0)
+    #         _insert_raw_body_paragraph(
+    #             current_input_path,
+    #             output_path,
+    #             insert_at,
+    #             _make_plain_styled_paragraph(affiliation_text, AFFILIATIONS_REQUIRED_STYLE_ID),
+    #         )
+    #         current_input_path = output_path
+    #         applied_any = True
+    #         _shift_abstract_plan_positions_after_insert(abstract_plan, insert_at)
+    #         _write_single_comment_docx(
+    #             input_path=current_input_path,
+    #             output_path=output_path,
+    #             paragraph_index=insert_at,
+    #             message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
+    #         )
+    #         current_input_path = output_path
 
     if action == "none":
         return applied_any
