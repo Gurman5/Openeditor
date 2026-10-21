@@ -42,3 +42,21 @@ APA7_DEFAULT_FONT = DEFAULT_FONT
 APA7_DEFAULT_FONT_SIZE_PT = DEFAULT_FONT_SIZE
 APA7_LOCALE = globals().get("DEFAULT_LOCALE", "en-AU")
 APA7_CAROUSEL_RETENTION_ENABLED = globals().get("CAROUSEL_ENABLED", True)
+
+# JB-03: Acronym feature flag
+ENABLE_ACRONYM_PROCESSING = os.environ.get("ENABLE_ACRONYM_PROCESSING", "true").lower() in ("true", "1", "yes")
+
+def is_rq_hypothesis_exempt(document_metadata: dict, assignment_type: str = None) -> bool:
+    """
+    JB-05: Determines whether the document or assignment type is exempt 
+    from Research Question (RQ) or hypothesis validation checks.
+    """
+    exempt_types = {"literature_review", "reflective_essay", "annotated_bibliography"}
+    
+    if assignment_type and assignment_type.lower() in exempt_types:
+        return True
+        
+    if document_metadata.get("exempt_from_rq_hypothesis", False):
+        return True
+        
+    return False
