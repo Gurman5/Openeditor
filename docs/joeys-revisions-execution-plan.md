@@ -43,6 +43,11 @@ exemption helpers, 1 feature flag, and 1 diff engine** — no orchestration surg
 2. **Placeholder authors/affiliations**: **comment out the function usage** (not parameterise), with
    an inline rationale comment quoting Joey's recommendation; no placeholder text may ever reach the
    document, prompts, or output filename. FP002/FP003 comment-only rules stay.
+   Clarified (sprint catch-up transcript review): when authors/affiliations are genuinely missing,
+   Sam's author/abstract passes return `action: "none"` — **silent skip**, no extra Word comment;
+   FP002/FP003 carry the "not found" messaging. The processed document is a semi-blind manuscript;
+   insertion stays disabled for all manuscripts (blinded-styled input or not). Context note:
+   "Copy Bot" is the legacy JUTLP-bound submission tool; OpenEditor is not JUTLP-bound.
 3. **Intro Level-2 subheadings**: LLM-guideline text only — **no deterministic rule**.
 4. **Reference surgery**: full diff-based surgical engine is **in scope on this branch**, built on
    JB-10's fixed primitives (Joey's "consider last" applies to ordering, not exclusion).
