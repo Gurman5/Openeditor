@@ -9,25 +9,25 @@
 
 This document lists only defects found in review, with concrete amendments. It does not re-litigate ticket scope.
 
----
+***
 
 ## Findings summary
 
-| # | Ticket | Finding | Severity |
-|---|---|---|---|
-| 1 | JB-02 | `_apply_author_plan` `insert_default_authors` handler arm still live (plan criterion 2 explicitly required it commented out) | **Blocking** |
-| 2 | JB-02 | Both missing-authors plan constructions in `authorFormatCheck` were **deleted**, not commented out (criterion: "comment out, do not delete"); the surviving comment falsely claims "commented out, not deleted" | Should |
-| 3 | JB-02 | Rationale comments paraphrase rather than carry the plan's quoted block | Should |
-| 4 | JB-02 | `llm_calls/25` trace sanity (real authors in 2nd editorial prompt) not evidenced | Should |
-| 5 | JB-04 | Professional-mode running head is **re-installed after blanking** — plan listed `_apply_apa_title_page_headers` as a work site; it was not touched | **Blocking** |
-| 6 | JB-04 | Word-COM gate assertion (page number top-right) not evidenced | Could |
-| 7 | JB-08 | "±table-range" read as above-table only; plan fixture asks for subheading-below case | Should (decision needed) |
-| 8 | JB-08 | No explicit spacing-uniformity-inside-tables assertion | Should |
-| 9 | JB-08 | Plan-listed files `reference_indent.py` / `references_block_corrections.py` / `abstract_keywords_formatting.py` unverified (likely zone-scoped) | Could |
-| 10 | Lint | 2 unused imports in `tests/test_front_page_style_fixes.py` (:5 `WD_SECTION`, :18 `AUTHORS_REQUIRED_STYLE_ID`); missing EOF newline in `tests/test_output_filename.py` | Trivial |
-| 11 | Branch | `tests/test_docx_ooxml_validity.py` fails collection (imports `_reconcile_comment_sidecars`, absent from the pipeline since before `51158df`) — **pre-existing, not from these commits** | Out of Joey scope (§E) |
+| #  | Ticket | Finding                                                                                                                                                                                                         | Severity                 |
+| -- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| 1  | JB-02  | `_apply_author_plan` `insert_default_authors` handler arm still live (plan criterion 2 explicitly required it commented out)                                                                                    | **Blocking**             |
+| 2  | JB-02  | Both missing-authors plan constructions in `authorFormatCheck` were **deleted**, not commented out (criterion: "comment out, do not delete"); the surviving comment falsely claims "commented out, not deleted" | Should                   |
+| 3  | JB-02  | Rationale comments paraphrase rather than carry the plan's quoted block                                                                                                                                         | Should                   |
+| 4  | JB-02  | `llm_calls/25` trace sanity (real authors in 2nd editorial prompt) not evidenced                                                                                                                                | Should                   |
+| 5  | JB-04  | Professional-mode running head is **re-installed after blanking** — plan listed `_apply_apa_title_page_headers` as a work site; it was not touched                                                              | **Blocking**             |
+| 6  | JB-04  | Word-COM gate assertion (page number top-right) not evidenced                                                                                                                                                   | Could                    |
+| 7  | JB-08  | "±table-range" read as above-table only; plan fixture asks for subheading-below case                                                                                                                            | Should (decision needed) |
+| 8  | JB-08  | No explicit spacing-uniformity-inside-tables assertion                                                                                                                                                          | Should                   |
+| 9  | JB-08  | Plan-listed files `reference_indent.py` / `references_block_corrections.py` / `abstract_keywords_formatting.py` unverified (likely zone-scoped)                                                                 | Could                    |
+| 10 | Lint   | 2 unused imports in `tests/test_front_page_style_fixes.py` (:5 `WD_SECTION`, :18 `AUTHORS_REQUIRED_STYLE_ID`); missing EOF newline in `tests/test_output_filename.py`                                           | Trivial                  |
+| 11 | Branch | `tests/test_docx_ooxml_validity.py` fails collection (imports `_reconcile_comment_sidecars`, absent from the pipeline since before `51158df`) — **pre-existing, not from these commits**                        | Out of Joey scope (§E)   |
 
----
+***
 
 ## A. JB-02 — placeholder author/affiliation insertion
 
@@ -41,7 +41,7 @@ This document lists only defects found in review, with concrete amendments. It d
 
 **Acceptance test** (add to `tests/test_front_page_style_fixes.py`):
 
-```python
+```Python
 def test_insert_default_authors_plan_is_inert(tmp_path):
     """Belt-and-braces (JB-02): even a hand-built insert_default_authors
     plan must not write anything — the apply branch is commented out."""
@@ -61,7 +61,7 @@ def test_insert_default_authors_plan_is_inert(tmp_path):
 
 **Amendment:** replace the prose summary (`:1648-1651`) with the following verbatim old code, commented out, under the A3 rationale block:
 
-```python
+```Python
 #     existing_affiliations = _find_existing_affiliations_for_missing_authors(
 #         docxpath,
 #         author_state["title_idx"],
@@ -110,25 +110,60 @@ The live `return {"action": "none", …}` stays exactly as Humaid wrote it.
 
 Existing paraphrases may stay underneath as secondary notes.
 
-### A4 (should) — evidence the `llm_calls/25` trace sanity
+### A4 (should) — evidence the `llm_calls/25` trace sanity — ✅ DONE (2026-10-22)
 
-Plan criterion: rerun the trace and confirm the second editorial prompt shows the real authors ("Michael Cowling and Joshua Newn"). **Amendment:** run `PIPELINE_TRACE=1 python -m app.pipelines.feedback_gen_pipeline <Cowling-Newn manuscript> --trace`, attach/point to the `llm_calls/*editorial*` request artifacts in the PR, and confirm the author line is real, not placeholder. (Static review found no path that feeds `corrected_authors_line=""` into the editorial prompt, but the plan asks for the run.)
+Plan criterion: rerun the trace and confirm the second editorial prompt shows the real authors ("Michael Cowling and Joshua Newn").
 
-### A5 (could) — single placeholder regex
+**Run executed:**
+
+```text
+PIPELINE_TRACE=1 python -m app.pipelines.feedback_gen_pipeline "<manuscript>" --trace
+input : ASCILITE2026_ConcisePaper_Echo360_SingleClassroom CR.docx (copied to run dir)
+trace : <run dir>/trace_cli/
+output: <run dir>/reviewed_manuscript.docx
+```
+
+27 LLM call artifacts recorded (`trace_cli/llm_calls/`), 5 document snapshots.
+
+**Evidence — both editorial prompts carry the real author line:**
+
+| Artifact | Size | System prompt | Author line in user_prompt |
+|---|---|---|---|
+| `02_call_llm_request.json` (1st editorial) | 33,860 B | "You are an APA7 copy editor…" | `Michael Cowling and Joshua Newn` |
+| `25_call_llm_request.json` (2nd editorial) | 32,533 B | same APA7 copy-editor prompt | `## Authors\nMichael Cowling and Joshua Newn` |
+
+Placeholder scan over `25`'s full user_prompt: `First Author` = 0, `First\s+Author` = 0,
+`Affiliation 1` = 0, `I\. Last` = 0, `placeholder` = 0. **PASS** — real authors, no
+placeholder text, satisfying the criterion empirically as well as statically.
+
+**Incidental finding (pre-existing, OUT of JB-02 scope, needs a follow-up ticket):**
+the run recorded `stage_errors: [{severity: "critical", stage: "Editorial review (AI)",
+error: "'EditorialReviewResult' object has no attribute 'get'"}]`. Cause:
+`app/pipelines/feedback_gen_pipeline.py:734` (`st.meta(notes=len((llm_result or {}).get("notes") or []))`)
+calls dict-style `.get()` on the `EditorialReviewResult` **dataclass** (`app/domain/editorial_feedback.py:23`).
+Introduced by `51158df` (pre-Humaid base, the D-TR trace commit), not by JB-02/04/08 or these
+amendments. Effect: after a *successful* editorial LLM call, the exception is caught at :735 and
+`llm_result` is reset to `None`, so LLM editorial notes are discarded before `generate_commented_docx`
+on every run. Deterministic corrections and output generation are unaffected. One-line fix
+(`llm_result.notes if llm_result else []`) — deliberately NOT included in this batch to keep the
+JB-02 amendment scoped; raise with the team before merging.
+
+### A5 (could) — single placeholder regex — skipped (deliberate)
 
 `app/services/output_filename.py:10-13` introduced `_PLACEHOLDER_AUTHOR_RE` (`First\s+(Author|I\.\s+Last)`) rather than reusing an extraction-side marker regex (criterion: "guard with the same marker regex used for extraction"). Functionally equivalent and covered by tests. Optional: hoist one shared constant used by both extraction and the filename guard so they cannot drift. Low priority.
 
 **Already conforming (no change):** `action:"none"` silent-skip semantics with `corrected_authors_line:""`; `replace_in_place` repairs for malformed-but-present author lines untouched; FP002/FP003 moved to comment-only in `reporting_ownership.py` (correct adaptation for this base, which had them in `SAM_FIXED_RULE_IDS` — locked decision says comment-only); filename fallback guard + test (`Cowling_JUTLP_2026_…`); full-build regression tests via `test_fp002_no_placeholder_authors_inserted` / `test_fp003_no_placeholder_affiliations_inserted`; `SUPERSCRIPT_CHAR_MAP` and helper machinery kept.
 
----
+***
 
 ## B. JB-04 — blank running header, keep only top-right page number
 
 ### B1 (blocking) — professional mode re-installs the running head after blanking
 
 **Sites:**
-- blanking: `_make_page_number_header` `:7815` (correct in isolation), invoked per header part from `_apply_apa_body_geometry` `:7907-7922` (default + first) — called from `build_edited_document` at **`:9831`**
-- the offender: `_apply_apa_title_page_headers` `:8565-8576` → `_ensure_running_head_header` `:8511-8562`, called from `_apply_apa_title_page` at `:8667`, which runs at **`:9936-9941` — after the blanking**
+
+* blanking: `_make_page_number_header` `:7815` (correct in isolation), invoked per header part from `_apply_apa_body_geometry` `:7907-7922` (default + first) — called from `build_edited_document` at **`:9831`**
+* the offender: `_apply_apa_title_page_headers` `:8565-8576` → `_ensure_running_head_header` `:8511-8562`, called from `_apply_apa_title_page` at `:8667`, which runs at **`:9936-9941`** **— after the blanking**
 
 **Defect (empirically verified):** in professional mode (`APA7_TITLE_PAGE_MODE=professional`, or auto when the doc has an Author Note and no student markers — `:8360`) `_ensure_running_head_header` writes a **left-aligned running head + tab + PAGE field** over the already-blanked header. Reproduced: after `geometry → title page` the final header reads `'A STUDY OF … FOR1'` with `jc=left`. JB-04's one-line goal does not hold for professional-mode manuscripts — precisely the journal-submission case. The plan listed `_apply_apa_title_page_headers` **8531-8542** as a work site; it was not touched.
 
@@ -147,7 +182,7 @@ The plan's Word-COM assertion (page number renders top-right; `word_gate` alread
 
 **Already conforming:** PAGE paragraph ensured; default + first parts both processed; footers untouched (tested); no track-change markup on header removals (raw XML); `_make_page_field` reuse; stripping of running head sharing the PAGE paragraph (tested).
 
----
+***
 
 ## C. JB-08 — table indent exclusion
 
@@ -156,8 +191,9 @@ The plan's Word-COM assertion (page number renders top-right; `word_gate` alread
 **Site:** `_table_caption_paragraph_indices` `:8039-8062` excludes (a) caption-labeled paragraphs (`looks_like_caption_paragraph`) and (b) paragraphs whose next body sibling is `w:tbl`. Paragraphs *below* a table are only excluded if they happen to match the caption regex. The plan wording is "inside ±table-range" and its fixture asks for "table 3×3 + heading paragraph above (Normal), **subheading below**"; Humaid's test (`tests/test_body_indent_tables.py:52`) asserts body-below-table **is** indented.
 
 **Amendment — pick one, then lock it in a test:**
-- **Recommended (current behaviour):** below-table Normal paragraphs are ordinary body prose and should indent. Keep the code; add `test_subheading_below_table_is_indented` and a 3×3-table fixture matching the plan's shape, with a comment citing this interpretation so the ±range wording is explicitly resolved.
-- **Strict ±range:** also skip a Normal-styled paragraph whose previous body sibling is `w:tbl`. Risk: genuine body prose directly after a table would silently lose its indent — only take this if the team confirms the intent.
+
+* **Recommended (current behaviour):** below-table Normal paragraphs are ordinary body prose and should indent. Keep the code; add `test_subheading_below_table_is_indented` and a 3×3-table fixture matching the plan's shape, with a comment citing this interpretation so the ±range wording is explicitly resolved.
+* **Strict ±range:** also skip a Normal-styled paragraph whose previous body sibling is `w:tbl`. Risk: genuine body prose directly after a table would silently lose its indent — only take this if the team confirms the intent.
 
 ### C2 (should) — spacing-uniformity assertion inside tables
 
@@ -169,22 +205,22 @@ Plan criterion: "Assert spacing uniformity inside tables remains untouched (spac
 
 **Already conforming:** sibling `w:p`/`w:tbl` neighbour scan with no new dependency; reuse of `looks_like_caption_paragraph` from `document_zones`; indent flag flipped without discarding alignment/spacing fixes; caption/heading-above-table/body/cell assertions.
 
----
+***
 
 ## D. Lint debt (trivial, same PR as whichever ticket is amended first)
 
-- `tests/test_front_page_style_fixes.py:5` — remove unused `WD_SECTION` import
-- `tests/test_front_page_style_fixes.py:18` — remove unused `AUTHORS_REQUIRED_STYLE_ID` import
-- `tests/test_output_filename.py` — restore trailing newline at EOF
-- `app/services/output_generation_samfix.py` sits at 5 pre-existing ruff errors (same count as the pre-review base — none introduced by these commits; leave or fix opportunistically, do not block)
+* `tests/test_front_page_style_fixes.py:5` — remove unused `WD_SECTION` import
+* `tests/test_front_page_style_fixes.py:18` — remove unused `AUTHORS_REQUIRED_STYLE_ID` import
+* `tests/test_output_filename.py` — restore trailing newline at EOF
+* `app/services/output_generation_samfix.py` sits at 5 pre-existing ruff errors (same count as the pre-review base — none introduced by these commits; leave or fix opportunistically, do not block)
 
----
+***
 
 ## E. Out of Joey scope — flag separately, do not fold into these tickets
 
 `tests/test_docx_ooxml_validity.py` fails collection on this branch: it imports `_reconcile_comment_sidecars` from `app.pipelines.feedback_gen_pipeline`, which does not exist at `51158df` or HEAD. The test file arrived via the `e094dba` lineage; the function was dropped in a later merge. This predates all four reviewed commits. It blocks a bare `pytest` run (worked around during review with `--ignore=`). **Options for the owner:** restore the function from its last known commit, or quarantine the module with an `pytest.importorskip`/`skip` marker and open a tracking ticket. Needs a team decision; do not entangle with JB-02/04/08.
 
----
+***
 
 ## F. Definition of done for the amendment PRs
 
@@ -194,3 +230,4 @@ Plan criterion: "Assert spacing uniformity inside tables remains untouched (spac
 4. `python -m pytest --ignore=tests/test_docx_ooxml_validity.py` fully green; `ruff check` clean on every touched file.
 5. Trace evidence attached: JB-02 `llm_calls/25` sanity (A4); JB-04 blank header + top-right PAGE in the output snapshot (run with the fix).
 6. One commit per ticket amendment (`fix: JB-02 … (review amendments)`, etc.), matching the repo's per-ticket commit style.
+
