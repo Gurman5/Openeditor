@@ -23,6 +23,7 @@ from app.services.body_llm_edits import build_body_edit_plan
 from app.services.abstract_keywords_formatting import apply_abstract_keywords_formatting
 from app.services.document_analysis_services import get_front_page, load_paragraphs
 from app.services.document_styling_fixes import extract_template_styles
+from app.services.document_zones import looks_like_caption_paragraph
 from app.services.editorial_review_comments import build_editorial_review_comment_plan
 from app.services.heading_corrections import apply_heading_corrections
 from app.services.language_corrections import AU_CORRECTIONS as _AU_CORRECTIONS
@@ -8035,6 +8036,31 @@ def _apply_body_run_format(run_element, fix):
         sz_cs = _find_or_make_child(r_pr, f"{WQ}szCs")
         sz_cs.set(f"{WQ}val", BODY_REQUIRED_FONT_SIZE_XML)
 
+def _table_caption_paragraph_indices(doc_root, body_paras):
+    """Indices (into body_paras) of paragraphs that are captions or sit
+    directly above a table so these must not receive a first-line indent.
+
+    JB-08 (Joey revision): table headings/subheadings/captions are excluded from
+    indenting. Cell paragraphs never reach here: body_paras only holds
+    direct w:p children of w:body.
+    """
+    body = doc_root.find(f"{WQ}body")
+    if body is None:
+        return set()
+    children = [el for el in body if el.tag in (f"{WQ}p", f"{WQ}tbl")]
+    para_index = {id(el): i for i, el in enumerate(body_paras)}
+    skip = set()
+    for pos, el in enumerate(children):
+        if el.tag != f"{WQ}p":
+            continue
+        idx = para_index.get(id(el))
+        if idx is None:
+            continue
+        if looks_like_caption_paragraph(el):
+            skip.add(idx)
+        elif pos + 1 < len(children) and children[pos + 1].tag == f"{WQ}tbl":
+            skip.add(idx)
+    return skip
 
 def _apply_tracked_body_format_fixes(input_path, output_path, format_fixes, change_id_start):
     if format_fixes is None:
@@ -8046,6 +8072,7 @@ def _apply_tracked_body_format_fixes(input_path, output_path, format_fixes, chan
     changed = False
     change_id = change_id_start
     seen_positions = set()
+    skip_indent_indices = _table_caption_paragraph_indices(doc_root, body_paras)
 
     for fix in format_fixes:
         paragraph_index = fix.get("paragraph_index")
@@ -8058,18 +8085,24 @@ def _apply_tracked_body_format_fixes(input_path, output_path, format_fixes, chan
 
         para_element = body_paras[paragraph_index]
 
+        # JB-08: never first-line-indent table captions/headings/subheadings.
+        effective_fix = fix
+        if paragraph_index in skip_indent_indices and fix.get("indent") is True:
+            effective_fix = dict(fix)
+            effective_fix["indent"] = False
+
         paragraph_change_needed = False
-        if fix.get("alignment") is True:
+        if effective_fix.get("alignment") is True:
             paragraph_change_needed = True
-        if fix.get("line_spacing") is True:
+        if effective_fix.get("line_spacing") is True:
             paragraph_change_needed = True
-        if fix.get("spacing") is True:
+        if effective_fix.get("spacing") is True:
             paragraph_change_needed = True
-        if fix.get("indent") is True:
+        if effective_fix.get("indent") is True:
             paragraph_change_needed = True
 
         if paragraph_change_needed is True:
-            _apply_tracked_body_paragraph_format(para_element, fix, change_id)
+            _apply_tracked_body_paragraph_format(para_element, effective_fix, change_id)
             change_id += 1
             changed = True
 
