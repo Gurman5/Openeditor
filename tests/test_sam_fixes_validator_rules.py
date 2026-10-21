@@ -67,25 +67,26 @@ def test_fp001_title_plan_restores_title(tmp_path):
     assert _status_of(validate(str(out)), "FP001") in ("pass", "warn", "fail")
 
 
-def test_fp002_author_plan_inserts_authors(tmp_path):
-    """FP002 fixed by S._apply_author_plan (insert + comment)."""
+def test_fp002_no_placeholder_authors_inserted(tmp_path):
+    """JB-02: FP002 is comment-only — no 'First Author^…' placeholder inserted."""
     src = tmp_path / "in.docx"
     shutil.copy(SRC, src)
     _strip_paragraphs_by_style(src, "Authors")
-    assert _status_of(validate(str(src)), "FP002") == "fail"
     out = tmp_path / "out.docx"
     _run_full_build(src, out)
-    assert _status_of(validate(str(out)), "FP002") == "pass"
+    d = Document(str(out))
+    assert all("First Author" not in p.text for p in d.paragraphs)
 
 
-def test_fp003_author_plan_inserts_affiliations(tmp_path):
-    """FP003 fixed by S._apply_author_plan (default affiliations insert)."""
+def test_fp003_no_placeholder_affiliations_inserted(tmp_path):
+    """JB-02: FP003 is comment-only — no default affiliation placeholder inserted."""
     src = tmp_path / "in.docx"
     shutil.copy(SRC, src)
-    _strip_paragraphs_by_style(src, "Affiliation")
+    _strip_paragraphs_by_style(src, "Author Affiliations")
     out = tmp_path / "out.docx"
     _run_full_build(src, out)
-    assert _status_of(validate(str(out)), "FP003") == "pass"
+    d = Document(str(out))
+    assert all("Affiliation 1" not in p.text and "Affiliation 2" not in p.text for p in d.paragraphs)
 
 
 def test_fp006_keywords_stub(tmp_path):
@@ -181,16 +182,16 @@ def test_tab001_table_title_style(tmp_path):
 
 # ── negative tests: not Sam-fixed, so NOT in the ownership set ───────────────
 
-@pytest.mark.parametrize("rule_id", ["FP004", "FP007", "TAB002"])
+@pytest.mark.parametrize("rule_id", ["FP002", "FP003", "FP004", "FP007", "TAB002"])
 def test_not_sam_fixed(rule_id):
-    """FP004, FP007, TAB002 have no demonstrated Sam fix — they must stay
-    comment-only and out of SAM_FIXED_RULE_IDS."""
+    """FP002/FP003 (JB-02) plus FP004/FP007/TAB002 have no demonstrated Sam
+    fix — they must stay comment-only and out of SAM_FIXED_RULE_IDS."""
     assert rule_id not in SAM_FIXED_RULE_IDS
 
 
 def test_sam_fixed_set_matches_evidence():
     assert SAM_FIXED_RULE_IDS == {
-        "FP001", "FP002", "FP003", "FP006", "FP011",
+        "FP001", "FP006", "FP011",
         "STY003", "STY004", "SPE002", "TAB001",
         "APA002", "APA008", "APA009", "APA010", "APA011", "APA012",
     }

@@ -28,7 +28,7 @@ comment-only.
 # FP005 (Practitioner Notes) was deleted in C-26 along with the JUTLP front
 # matter; only the presence rules with a live fixer remain.
 SAM_FIXED_RULE_IDS = frozenset({
-    "FP001", "FP002", "FP003", "FP006", "FP011",
+    "FP001", "FP006", "FP011",
     "STY003", "STY004", "SPE002", "TAB001",
     "APA002", "APA008", "APA009", "APA010", "APA011", "APA012",
 })
@@ -65,7 +65,7 @@ FAMILY_VERDICTS = {
            "Default is comment-only; the Sam-fixed presence rules below are "
            "the exception, not the family verdict. FP004/FP007 were removed "
            "from the Sam-fixed set: no Sam pass repairs them.",
-           ["FP001", "FP002", "FP003", "FP006", "FP011"]),
+           ["FP001", "FP006", "FP011"]),
     # Page/section breaks. SPE002 (page break before Introduction) is inserted
     # by Sam; the rest are check-only.
     "SPE": ("comment",
