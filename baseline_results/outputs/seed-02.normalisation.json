@@ -1,0 +1,24 @@
+{
+  "accepted_revisions": 0,
+  "guidance_paragraphs_deleted": 0,
+  "blank_paragraphs_removed": 15,
+  "colour_strips": [
+    {
+      "paragraph_index": 75,
+      "snippet": "",
+      "value": "auto"
+    },
+    {
+      "paragraph_index": 87,
+      "snippet": "",
+      "value": "auto"
+    }
+  ],
+  "highlight_strips": [
+    {
+      "paragraph_index": 49,
+      "snippet": "",
+      "value": "clear"
+    }
+  ]
+}

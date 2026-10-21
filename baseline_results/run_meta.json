@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "run_type": "track-k-baseline",
+  "created_at": "2026-10-17T17:55:05.831914+00:00",
+  "corpus": "tests\\corpus\\seed",
+  "output_directory": "baseline_results",
+  "document_count": 4,
+  "documents": [
+    "seed-01.docx",
+    "seed-02.docx",
+    "seed-03.docx",
+    "seed-04.docx"
+  ],
+  "git": {
+    "commit": "7f013a5f8214ef1455affa808b8d11d2db48816f",
+    "branch": "main"
+  },
+  "environment": {
+    "python_version": "3.11.0",
+    "python_executable": "C:\\Users\\gurma\\OpenEditor\\venv\\Scripts\\python.exe",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "packages": [
+      "lxml==6.1.2",
+      "openai==3.3.1",
+      "python-docx==1.2.0"
+    ]
+  },
+  "llm": {
+    "mode": "on",
+    "api_key_set": true,
+    "env_api_key_set": true,
+    "client_api_key_set": true,
+    "model": "gpt-5.4-mini",
+    "temperature": "0.2",
+    "max_tokens": "16384"
+  },
+  "completed_at": "2026-10-17T18:05:29.889287+00:00",
+  "summary": {
+    "successful": 4,
+    "errors": 0
+  }
+}

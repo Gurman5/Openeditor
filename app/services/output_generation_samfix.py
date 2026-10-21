@@ -1020,11 +1020,11 @@ HEADER_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
 )
 
-AUTHOR = "CopyEditor AI"
+AUTHOR = "Openeditor"
 INITIALS = "AI"
 DATE = now_sydney_iso()
 
-TRACKED_CHANGE_AUTHOR = "CopyEditor AI"
+TRACKED_CHANGE_AUTHOR = "Openeditor"
 TRACKED_CHANGE_DATE = now_sydney_iso()
 RUN_AFFILIATION_CHECK_IN_AUTHORS = True
 
@@ -6380,14 +6380,23 @@ def _patch_rels(rels_xml):
     tree = etree.fromstring(rels_xml)
     ns = "http://schemas.openxmlformats.org/package/2006/relationships"
 
+    # Check if a comment relationship already exists
+    comment_rel = None
     for rel in tree:
         if rel.get("Type") == COMMENT_REL_TYPE:
-            return rels_xml
+            comment_rel = rel
+            break
 
-    new_rel = etree.SubElement(tree, f"{{{ns}}}Relationship")
-    new_rel.set("Id", "rIdComments")
-    new_rel.set("Type", COMMENT_REL_TYPE)
-    new_rel.set("Target", "comments.xml")
+    if comment_rel is not None:
+        # Ensure target and type are strictly correct
+        comment_rel.set("Target", "comments.xml")
+        if not comment_rel.get("Id"):
+            comment_rel.set("Id", "rIdComments")
+    else:
+        new_rel = etree.SubElement(tree, f"{{{ns}}}Relationship")
+        new_rel.set("Id", "rIdComments")
+        new_rel.set("Type", COMMENT_REL_TYPE)
+        new_rel.set("Target", "comments.xml")
 
     return etree.tostring(tree, xml_declaration=True, encoding="UTF-8", standalone=True)
 

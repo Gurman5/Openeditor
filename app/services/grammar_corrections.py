@@ -35,7 +35,7 @@ _STYLE_WORD_PAIRS = {
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WQ = f"{{{W}}}"
-AUTHOR = "CopyEditor AI"
+AUTHOR = "Openeditor"
 DATE = now_sydney_iso()
 
 # Styles whose paragraphs are NOT sent for grammar review

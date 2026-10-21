@@ -67,6 +67,8 @@ The body of the paper begins by repeating the title in bold, centred, on the
 first line — there is no "Introduction" heading. The introduction text follows
 directly under the repeated title.
 
+- Introduction subsections: if the introduction is long and requires subheadings, use APA-7 Level 2 headings (bold, flush left, title case) for those subsections.
+
 ## In-Text Citations
 
 - Author-date format: (Smith, 2020) or narrative form "Smith (2020)".
