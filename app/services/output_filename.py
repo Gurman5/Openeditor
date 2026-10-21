@@ -6,7 +6,7 @@ from docx import Document
 
 from app.services.document_analysis_services import get_front_page, load_paragraphs
 
-JOURNAL_NAME = "JUTLP"
+JOURNAL_NAME = "APA7"
 
 
 def _remove_superscript_runs_from_author_line(docx_path: str, paragraph_index: int | None, fallback: str):

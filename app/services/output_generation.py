@@ -48,7 +48,7 @@ COMMENT_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
 )
 
-AUTHOR = "CopyEditor AI"
+AUTHOR = "Openeditor"
 INITIALS = "AI"
 DATE = now_sydney_iso()
 
@@ -140,7 +140,7 @@ def _format_summary_line(mark: str, result: dict) -> str:
 
 def _append_validation_summary(docx_doc: DocxDocument, all_results: list[dict]) -> None:
     docx_doc.add_page_break()
-    docx_doc.add_heading("CopyEditor AI Validation Summary", level=1)
+    docx_doc.add_heading("Openeditor Validation Summary", level=1)
     passed = [r for r in all_results if str(r.get("status", "")).lower() == "pass"]
     flagged = [r for r in all_results if str(r.get("status", "")).lower() in {"fail", "warn"}]
 

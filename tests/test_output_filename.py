@@ -29,8 +29,8 @@ def test_output_filename_uses_first_author_and_increments(tmp_path):
 
     second_name = build_output_filename(docx_path, str(tmp_path))
 
-    assert first_name == f"Doe_JUTLP_{year}_CopyEdit1.docx"
-    assert second_name == f"Doe_JUTLP_{year}_CopyEdit2.docx"
+    assert first_name == f"Doe_APA7_{year}_CopyEdit1.docx"
+    assert second_name == f"Doe_APA7_{year}_CopyEdit2.docx"
 
 
 def test_output_filename_handles_plain_affiliation_markers(tmp_path):
@@ -46,7 +46,7 @@ def test_output_filename_handles_plain_affiliation_markers(tmp_path):
 
     filename = build_output_filename(str(docx_path), str(tmp_path))
 
-    assert filename == "Franch_JUTLP_2025_CopyEdit1.docx"
+    assert filename == "Franch_APA7_2025_CopyEdit1.docx"
 
 
 def test_output_filename_uses_author_line_before_affiliation_break(tmp_path):
@@ -61,7 +61,7 @@ def test_output_filename_uses_author_line_before_affiliation_break(tmp_path):
 
     filename = build_output_filename(str(docx_path), str(tmp_path))
 
-    assert filename == "Sankey_JUTLP_2024_CopyEdit1.docx"
+    assert filename == "Sankey_APA7_2024_CopyEdit1.docx"
 
 
 def test_output_filename_ignores_parenthetical_degrees():
@@ -85,7 +85,7 @@ def test_output_filename_can_use_corrected_author_line(tmp_path):
         "Alex Chen^a, Priya Nair^b, and Sam Perry^a",
     )
 
-    assert filename == "Chen_JUTLP_2025_CopyEdit1.docx"
+    assert filename == "Chen_APA7_2025_CopyEdit1.docx"
 
 
 def test_corrected_author_line_uses_doc_affiliation_markers(tmp_path):
@@ -105,7 +105,7 @@ def test_corrected_author_line_uses_doc_affiliation_markers(tmp_path):
         "Patsie Pollya, Sam Writerb",
     )
 
-    assert filename == "Polly_JUTLP_2026_CopyEdit1.docx"
+    assert filename == "Polly_APA7_2026_CopyEdit1.docx"
 
 
 def test_corrected_author_line_uses_doc_without_superscript_markers(tmp_path):
@@ -129,4 +129,4 @@ def test_corrected_author_line_uses_doc_without_superscript_markers(tmp_path):
         "Prof. Patsie Pollya",
     )
 
-    assert filename == "Polly_JUTLP_2026_CopyEdit1.docx"
+    assert filename == "Polly_APA7_2026_CopyEdit1.docx"

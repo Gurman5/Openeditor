@@ -1021,11 +1021,11 @@ HEADER_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
 )
 
-AUTHOR = "CopyEditor AI"
+AUTHOR = "Openeditor"
 INITIALS = "AI"
 DATE = now_sydney_iso()
 
-TRACKED_CHANGE_AUTHOR = "CopyEditor AI"
+TRACKED_CHANGE_AUTHOR = "Openeditor"
 TRACKED_CHANGE_DATE = now_sydney_iso()
 RUN_AFFILIATION_CHECK_IN_AUTHORS = True
 
