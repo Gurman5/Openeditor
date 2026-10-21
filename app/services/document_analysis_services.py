@@ -158,6 +158,27 @@ def find_first_paragraph(paragraphs: list[ParagraphRecord], text: str, style: st
     return None
 
 
+# JB-06: the abstract heading must match loosely, not by exact string. Authors
+# write "ABSTRACT", "Abstract:", or headings with stray whitespace; the exact
+# ``p.text == "Abstract"`` check missed them and cascaded FP004/FP007/FP008
+# plus a duplicate LLM editorial note. The match is deliberately strict about
+# the label itself (the whole heading must read "abstract" with optional
+# colon/whitespace) so headings like "Abstract Methods" or prose containing
+# the word are not misdetected as the heading.
+def _normalise_heading_label(text: str) -> str:
+    return text.strip().rstrip(":").strip().casefold()
+
+
+def is_abstract_heading(paragraph: ParagraphRecord) -> bool:
+    """True when a paragraph is an abstract heading ('Abstract', 'ABSTRACT',
+    'Abstract:', 'Abstract :')."""
+    return _normalise_heading_label(paragraph.text) == "abstract"
+
+
+def find_abstract_heading(paragraphs: list[ParagraphRecord]) -> ParagraphRecord | None:
+    return next((p for p in paragraphs if is_abstract_heading(p)), None)
+
+
 ##count occurrences of each paragraph style
 def count_styles(paragraphs: list[ParagraphRecord]) -> dict:
     counts = {}
@@ -183,9 +204,7 @@ def extract_heading_level_1_sections(paragraphs: list[ParagraphRecord]) -> list[
     a stable anchor for comments, section bounds, and ordering checks.
     """
     return [
-        {"text": p.text, "position": p.index}
-        for p in paragraphs
-        if _is_main_section_heading(p)
+        {"text": p.text, "position": p.index} for p in paragraphs if _is_main_section_heading(p)
     ]
 
 
@@ -218,11 +237,7 @@ def extract_main_sections(paragraphs: list[ParagraphRecord]) -> list[str]:
     # Strip leading heading numbers ("2. Literature Review" -> "Literature
     # Review") so every consumer of parsed["main_sections"] matches against
     # clean, unnumbered names.
-    return [
-        strip_leading_section_number(p.text)
-        for p in paragraphs
-        if _is_main_section_heading(p)
-    ]
+    return [strip_leading_section_number(p.text) for p in paragraphs if _is_main_section_heading(p)]
 
 
 ##Define secion boundaries - used for inspecting each section
@@ -230,7 +245,7 @@ def get_heading1_positions(paragraphs: list[ParagraphRecord]) -> list[int]:
     return [p.index for p in paragraphs if p.style == "Heading 1" and not p.is_empty]
 
 
-#returns the start and end line of an inout section
+# returns the start and end line of an inout section
 def get_section_bounds(paragraphs: list[ParagraphRecord], section_name: str):
     # Match the section by its canonical name OR any alias ("3. Methodology"
     # → Method), so subsection extraction locates the section even when the
@@ -238,25 +253,22 @@ def get_section_bounds(paragraphs: list[ParagraphRecord], section_name: str):
     aliases = CANONICAL_STRUCTURE.get("section_aliases", {}).get(section_name, [])
     candidates = [section_name, *aliases]
     heading_positions = [
-        p.index for p in paragraphs
-        if _is_main_section_heading(p)
-        and any(_heading_matches(p.text, c) for c in candidates)
+        p.index
+        for p in paragraphs
+        if _is_main_section_heading(p) and any(_heading_matches(p.text, c) for c in candidates)
     ]
 
     if not heading_positions:
         return None
 
     start = heading_positions[0]
-    next_h1 = [
-        p.index for p in paragraphs
-        if _is_main_section_heading(p) and p.index > start
-    ]
+    next_h1 = [p.index for p in paragraphs if _is_main_section_heading(p) and p.index > start]
 
     end = next_h1[0] if next_h1 else len(paragraphs)
     return start, end
 
 
-#match a paragraph that looks like a Heading 2 caption (e.g. "Table 1.", "Figure 3:").
+# match a paragraph that looks like a Heading 2 caption (e.g. "Table 1.", "Figure 3:").
 _CAPTION_LIKE = re.compile(r"^(?:table|figure)\s+\d+[.:]?\s*$", re.IGNORECASE)
 
 
@@ -289,7 +301,7 @@ def _is_pseudo_heading2(p: ParagraphRecord) -> bool:
     return True
 
 
-#get bounds of subsections
+# get bounds of subsections
 def extract_subsections(paragraphs: list[ParagraphRecord], section_name: str) -> list[str]:
     bounds = get_section_bounds(paragraphs, section_name)
     if bounds is None:
@@ -302,20 +314,23 @@ def extract_subsections(paragraphs: list[ParagraphRecord], section_name: str) ->
     # applying the template style; Sam-fix restyles them later in the
     # pipeline but the validator runs first.
     return [
-        p.text for p in paragraphs[start:end]
-        if not p.is_empty
-        and (p.style == "Heading 2" or _is_pseudo_heading2(p))
+        p.text
+        for p in paragraphs[start:end]
+        if not p.is_empty and (p.style == "Heading 2" or _is_pseudo_heading2(p))
     ]
 
 
-#extract the front page (contains title, authors, affiliations, abstract, and keywords.)
+# extract the front page (contains title, authors, affiliations, abstract, and keywords.)
 def get_front_page(paragraphs: list[ParagraphRecord]) -> list[ParagraphRecord]:
     # Use fuzzy match so "Introduction: Background" also works as the boundary
     intro = next(
-        (p for p in paragraphs
-         if _is_main_section_heading(p)
-         and _heading_matches(p.text, "Introduction")
-         and not p.is_empty),
+        (
+            p
+            for p in paragraphs
+            if _is_main_section_heading(p)
+            and _heading_matches(p.text, "Introduction")
+            and not p.is_empty
+        ),
         None,
     )
     if intro is None:
@@ -331,12 +346,12 @@ def front_page_summary(paragraphs: list[ParagraphRecord]) -> dict:
         "title_found": any(p.style == "Article Title" for p in front),
         "authors_found": any(p.style == "Authors" for p in front),
         "affiliations_found": any(p.style == "Author Affiliations" for p in front),
-        "abstract_heading_found": any(p.text == "Abstract" for p in front),
+        "abstract_heading_found": any(is_abstract_heading(p) for p in front),
         "keywords_heading_found": any(p.text == "Keywords" for p in front),
     }
 
 
-#Abstract extractor/word count
+# Abstract extractor/word count
 def word_count(text: str) -> int:
     return len(re.findall(r"\b\w+(?:[-']\w+)*\b", text))
 
@@ -361,20 +376,33 @@ def estimate_line_count(text: str, words_per_line: int) -> int:
 # front-page element or the body). Detected so the abstract length is measured
 # correctly even when the manuscript does NOT use the template "Front Page Text"
 # style (authors frequently leave the abstract as Normal).
-_ABSTRACT_BOUNDARY_STYLES = frozenset({
-    "Heading 1", "Heading 2", "Heading 3", "Heading 4", "Heading Front Page",
-})
-_ABSTRACT_BOUNDARY_TEXTS = frozenset({
-    "keywords", "keyword", "citation",
-})
+_ABSTRACT_BOUNDARY_STYLES = frozenset(
+    {
+        "Heading 1",
+        "Heading 2",
+        "Heading 3",
+        "Heading 4",
+        "Heading Front Page",
+    }
+)
+_ABSTRACT_BOUNDARY_TEXTS = frozenset(
+    {
+        "keywords",
+        "keyword",
+        "citation",
+    }
+)
 # "Practitioner Notes" is NOT an APA element and is no longer required, checked
 # or reported (C-26). It stays here purely as a *terminator*: a manuscript that
 # still carries a legacy PN block would otherwise have its notes swallowed into
 # the abstract, inflating the word count. Presence is ignored; the scan just
 # stops there.
-_LEGACY_ABSTRACT_TERMINATORS = frozenset({
-    "practitioner notes", "practioner notes",
-})
+_LEGACY_ABSTRACT_TERMINATORS = frozenset(
+    {
+        "practitioner notes",
+        "practioner notes",
+    }
+)
 
 
 def _is_abstract_boundary(p: ParagraphRecord) -> bool:
@@ -390,7 +418,7 @@ def _is_abstract_boundary(p: ParagraphRecord) -> bool:
 
 ##extract abstract paragraphs and return counts
 def extract_abstract(paragraphs: list[ParagraphRecord]) -> dict:
-    abstract_heading = find_first_paragraph(paragraphs, "Abstract")
+    abstract_heading = find_abstract_heading(paragraphs)
     if abstract_heading is None:
         return {
             "found": False,
@@ -476,7 +504,7 @@ def extract_keywords(paragraphs: list[ParagraphRecord]) -> list[str]:
     return [p for p in parts if p]
 
 
-#combine everything and create doc structure
+# combine everything and create doc structure
 def parse_docx_structure(docx_path: str) -> dict:
     paragraphs = load_paragraphs(docx_path)
 
@@ -504,9 +532,9 @@ def parse_docx_structure(docx_path: str) -> dict:
     }
 
 
-#no journal specific assumption just a generic parse of a .docx file.
+# no journal specific assumption just a generic parse of a .docx file.
 def parse_docx(docx_path: str) -> dict:
-    #doesn't look at what journal the doc is written for. Just reports whats in the file
+    # doesn't look at what journal the doc is written for. Just reports whats in the file
     paragraphs = load_paragraphs(docx_path)
 
     paragraph_dicts = [
@@ -530,9 +558,10 @@ def parse_docx(docx_path: str) -> dict:
         "word_count": word_count(full_text),
         "styles": count_styles(paragraphs),
         "tables": [],
-        "references":[],
+        "references": [],
         "metadata": {},
     }
+
 
 def _heading_level(style: str) -> int | None:
     """Return 1/2/3/4 for 'Heading N' styles, else None."""
@@ -542,6 +571,7 @@ def _heading_level(style: str) -> int | None:
         except ValueError:
             return None
     return None
+
 
 def _top_heading_level(paragraphs: list[ParagraphRecord]) -> int | None:
     """Return the heading level used most often in the document to split the document into sections.
@@ -563,6 +593,7 @@ def _top_heading_level(paragraphs: list[ParagraphRecord]) -> int | None:
 
     return min(counts)
 
+
 def _generic_sections(paragraphs: list[ParagraphRecord]) -> list[dict]:
     """Section boundaries based on which heading level is the documents top level — no journal-specific
     name matching, unlike get_section_bounds()."""
@@ -571,22 +602,26 @@ def _generic_sections(paragraphs: list[ParagraphRecord]) -> list[dict]:
         return []
 
     heading_positions = [
-        p.index for p in paragraphs
-        if _heading_level(p.style) == top_level and not p.is_empty
+        p.index for p in paragraphs if _heading_level(p.style) == top_level and not p.is_empty
     ]
     titles = {p.index: p.text for p in paragraphs}
 
     sections = []
     for i, start in enumerate(heading_positions):
         end = heading_positions[i + 1] if i + 1 < len(heading_positions) else len(paragraphs)
-        sections.append({
-            "title": titles[start],
-            "start": start,
-            "end": end,
-            "paragraph_indexes": [p.index for p in paragraphs if start <= p.index < end],
-        })
+        sections.append(
+            {
+                "title": titles[start],
+                "start": start,
+                "end": end,
+                "paragraph_indexes": [p.index for p in paragraphs if start <= p.index < end],
+            }
+        )
     return sections
+
+
 if __name__ == "__main__":
     parsed = parse_docx_structure("tests/jutlp_sample_docx_test_pack/01_valid_identified.docx")
     from pprint import pprint
+
     pprint(parsed)

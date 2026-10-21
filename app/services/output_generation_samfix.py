@@ -4,9 +4,8 @@ import copy
 import os
 import re
 import shutil
-import zipfile
-import re
 import unicodedata
+import zipfile
 
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -16,10 +15,11 @@ from app.domain.apa7_template import (
     CANONICAL_STRUCTURE,
     strip_leading_section_number,
 )
+from app.services import config as _APA7_CONFIG
+from app.services.abstract_keywords_formatting import apply_abstract_keywords_formatting
 from app.services.acronym_store import load_acronyms
 from app.services.ai.llm_client import call_llm_json
 from app.services.body_llm_edits import build_body_edit_plan
-from app.services.abstract_keywords_formatting import apply_abstract_keywords_formatting
 from app.services.document_analysis_services import get_front_page, load_paragraphs
 from app.services.document_styling_fixes import extract_template_styles
 from app.services.editorial_review_comments import build_editorial_review_comment_plan
@@ -31,7 +31,6 @@ from app.services.quotation_utils import find_quote_spans
 from app.services.references_block_corrections import apply_references_block_corrections
 from app.services.run_font_corrections import apply_run_font_corrections
 from app.services.timestamps import now_sydney_iso
-from app.services import config as _APA7_CONFIG
 
 
 def normalize_marker(marker: str) -> str:
@@ -2110,20 +2109,20 @@ def _run_affiliation_validation_in_authors(source_authors_line, current_authors_
     normalized_authors_line = re.sub(r'\^([a-zA-Z0-9]+)', r'\1', normalized_authors_line)
 
     affiliations_lines = _extract_authors_affiliations_section_lines(current_authors_block)
-    
+
     # Fallback: if block only had 1 line, pull affiliations directly from document paragraphs
     if not affiliations_lines and docxpath:
         try:
             paras = load_paragraphs(docxpath)
             affiliations_lines = [
-                p.text.strip() for p in paras 
+                p.text.strip() for p in paras
                 if p.style == "Author Affiliations" or "Affiliation" in p.style
             ]
         except Exception:
             pass
 
     affiliation_text = "\n".join(affiliations_lines)
-    
+
     # Normalize affiliation lines as well
     affiliation_text = unicodedata.normalize('NFKD', affiliation_text)
     affiliation_text = re.sub(r'\^([a-zA-Z0-9]+)', r'\1', affiliation_text)
@@ -2657,7 +2656,15 @@ def abstractFormatCheck(docxpath, abstract_state):
     default_affiliations_text = ""
 
     if abstract_state["abstract_found"] is False:
-        message = "Missing 'Abstract' heading on the front page after author affiliations."
+        # JB-06: use the agreed Joey wording so Sam's comment is word-identical
+        # to the validator's consolidated FP004 message and gets stripped by
+        # _remove_duplicate_sam_comments (the author sees ONE missing-abstract
+        # comment, not two layers saying it differently).
+        message = (
+            "The abstract and/or abstract heading is missing. APA 7 places a "
+            "single-paragraph abstract, headed 'Abstract', on its own page "
+            "after the title page. Please check your manuscript includes it."
+        )
         deidentified = _is_deidentified_manuscript(docxpath, abstract_state)
         default_affiliations_insert_pos = abstract_state["anchor_pos"]
         if abstract_state["affiliations_found"] is False and not deidentified:
@@ -4357,7 +4364,7 @@ def _collect_required_section_issues(paragraph_records, intro_index, literature_
         issues.append(
             {
                 "anchor_pos": section_anchor,
-                "message": "Missing required Heading 1 section: Introduction.",
+                "message": CANONICAL_STRUCTURE["missing_section_queries"]["Introduction"],
             }
         )
     else:
@@ -4432,7 +4439,7 @@ def _collect_required_section_issues(paragraph_records, intro_index, literature_
         issues.append(
             {
                 "anchor_pos": _nearest_anchor(results_index, method_index, literature_index, intro_index),
-                "message": "Missing required Heading 1 section: Discussion.",
+                "message": CANONICAL_STRUCTURE["missing_section_queries"]["Discussion"],
             }
         )
 
@@ -6366,7 +6373,7 @@ def _inject_comment_markers(para_element: etree._Element, comment_id: int) -> No
     insert_idx = 0
     if p_pr is not None:
         insert_idx = list(para_element).index(p_pr) + 1
-    
+
     while insert_idx < len(para_element) and para_element[insert_idx].tag == f"{WQ}commentRangeStart":
         insert_idx += 1
 

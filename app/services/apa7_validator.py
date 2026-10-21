@@ -1,8 +1,5 @@
 import re
 
-from docx import Document as DocxDocument
-from docx.oxml.ns import qn as _qn
-
 from app.domain.apa7_template import APA7_STRUCTURE
 from app.services.apa7_formatting_checks import (
     check_abstract_format,
@@ -12,16 +9,7 @@ from app.services.apa7_formatting_checks import (
     check_references_heading_format,
     check_references_page_break,
 )
-from app.services.config import (
-    APA7_DEFAULT_FONT,
-    APA7_DEFAULT_FONT_SIZE_PT,
-    APA7_LOCALE,
-    APA7_CAROUSEL_RETENTION_ENABLED,
-)
 from app.services.document_analysis_services import (
-    get_front_page,
-    get_section_bounds,
-    load_paragraphs,
     parse_docx_structure,
 )
 
@@ -82,13 +70,21 @@ def check_required_sections(parsed: dict) -> list[dict]:
             None,
         )
         if combined:
-            results.append(_result(
-                rule_id, "fail",
-                f"'{section}' found combined with another section ('{combined}') — "
-                f"APA-7 requires it as a separate top-level section",
-            ))
+            results.append(
+                _result(
+                    rule_id,
+                    "fail",
+                    f"'{section}' found combined with another section ('{combined}') — "
+                    f"APA-7 requires it as a separate top-level section",
+                )
+            )
         else:
-            message = f"Required section '{section}' not found"
+            # JB-07: Joey-phrased missing-section message; fall back to the
+            # generic text only if a section lacks a map entry.
+            message = (
+                APA7_STRUCTURE.get("missing_section_queries", {}).get(section)
+                or f"Required section '{section}' not found"
+            )
             results.append(_result(rule_id, "fail", message))
 
     return results
@@ -120,7 +116,8 @@ def _looks_like_subheading(text: str) -> bool:
 
 def _extra_subheadings(found_subs: list[str], required: list[str]) -> list[str]:
     return [
-        f for f in found_subs
+        f
+        for f in found_subs
         if _looks_like_subheading(f)
         and not any(subsection_alias_match(req, [f]) for req in required)
     ]
@@ -163,7 +160,9 @@ def check_discussion_subsections(parsed: dict) -> list[dict]:
         if subsection_alias_match(sub, found_subs):
             results.append(_result(rule_id, "pass", f"Discussion subsection '{sub}' found"))
         else:
-            results.append(_result(rule_id, "fail", f"Required Discussion subsection '{sub}' missing"))
+            results.append(
+                _result(rule_id, "fail", f"Required Discussion subsection '{sub}' missing")
+            )
 
     return results
 
@@ -174,8 +173,20 @@ def check_front_page(parsed: dict) -> list[dict]:
         ("FP001", fp["title_found"], "Article title found", "Article title not found"),
         ("FP002", fp["authors_found"], "Authors block found", "Authors block not found"),
         ("FP003", fp["affiliations_found"], "Affiliations block found", "Affiliations not found"),
-        ("FP004", fp["abstract_heading_found"], "Abstract heading found", "Abstract heading not found"),
-        ("FP006", fp["keywords_heading_found"], "Keywords heading found", "Keywords heading not found"),
+        (
+            "FP004",
+            fp["abstract_heading_found"],
+            "Abstract heading found",
+            "The abstract and/or abstract heading is missing. APA 7 places a "
+            "single-paragraph abstract, headed 'Abstract', on its own page after "
+            "the title page. Please check your manuscript includes it.",
+        ),
+        (
+            "FP006",
+            fp["keywords_heading_found"],
+            "Keywords heading found",
+            "Keywords heading not found",
+        ),
     ]
     return [
         _result(rule_id, "pass" if ok else "fail", pass_msg if ok else fail_msg)
@@ -188,10 +199,16 @@ def check_abstract(parsed: dict) -> list[dict]:
     abstract = parsed["front_page"]["abstract"]
     max_words = front["abstract_max_words"]
 
-    if not abstract["found"]:
+    # JB-06: when the heading itself is missing, FP004 already carries the
+    # single consolidated missing-abstract comment — FP007/FP008 are
+    # suppressed so the author sees one comment, not a triple-report.
+    # A present heading with a zero-word body still fails FP007 on its own
+    # (FP008's "length cannot be checked" is redundant noise).
+    if not abstract["found"] or abstract["word_count"] == 0:
+        if not parsed["front_page"]["abstract_heading_found"]:
+            return []
         return [
             _result("FP007", "fail", "Abstract body not found"),
-            _result("FP008", "fail", "Abstract length cannot be checked — abstract not found"),
         ]
 
     wc = abstract["word_count"]

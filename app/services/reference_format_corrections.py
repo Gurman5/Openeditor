@@ -21,12 +21,12 @@ apply_reference_format_corrections(
 import os
 import re
 import zipfile
+from difflib import SequenceMatcher
 
 from lxml import etree
 
 from app.services.document_zones import normalise_heading
 from app.services.language_corrections import AUTHOR, DATE, WQ
-from difflib import SequenceMatcher
 
 _REFERENCE_HEADING_TEXTS = frozenset({"references", "reference list", "bibliography"})
 
@@ -53,17 +53,18 @@ def _build_style_name_map(styles_xml: bytes | None) -> dict[str, str]:
             out[sid] = (name_el.get(f"{WQ}val", "") or "").strip().lower()
     return out
 
+
 # Preserve XML space attribute from the XML namespace
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
 # Relationship namespaces for hyperlink insertion
-_PKG_NS  = "http://schemas.openxmlformats.org/package/2006/relationships"
-_R_NS    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PKG_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _HL_TYPE = f"{_R_NS}/hyperlink"
-_R_NS_Q  = f"{{{_R_NS}}}"
+_R_NS_Q = f"{{{_R_NS}}}"
 
 # Matches a URL in the reconstructed APA string (the DOI URL at the end)
-_URL_RE = re.compile(r'https?://\S+')
+_URL_RE = re.compile(r"https?://\S+")
 
 # Paragraph styles that mark APA 7 reference list entries
 _REF_STYLES = {
@@ -75,26 +76,29 @@ _REF_STYLES = {
 }
 
 # Used in the fallback (non-styled) entry detection
-_YEAR_RE = re.compile(r'\(\d{4}[a-z]?\)')
+_YEAR_RE = re.compile(r"\(\d{4}[a-z]?\)")
 
 # Elements that must survive a paragraph content replacement because they
 # hold comment anchors or named bookmarks.
-_PRESERVE_TAGS = frozenset({
-    f'{WQ}bookmarkStart',
-    f'{WQ}bookmarkEnd',
-    f'{WQ}commentRangeStart',
-    f'{WQ}commentRangeEnd',
-})
+_PRESERVE_TAGS = frozenset(
+    {
+        f"{WQ}bookmarkStart",
+        f"{WQ}bookmarkEnd",
+        f"{WQ}commentRangeStart",
+        f"{WQ}commentRangeEnd",
+    }
+)
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+
 def _para_style(para: etree._Element) -> str:
-    pPr = para.find(f'{WQ}pPr')
+    pPr = para.find(f"{WQ}pPr")
     if pPr is None:
-        return ''
-    ps = pPr.find(f'{WQ}pStyle')
-    return ps.get(f'{WQ}val', '') if ps is not None else ''
+        return ""
+    ps = pPr.find(f"{WQ}pStyle")
+    return ps.get(f"{WQ}val", "") if ps is not None else ""
 
 
 def _para_plain_text(para: etree._Element) -> str:
@@ -103,12 +107,12 @@ def _para_plain_text(para: etree._Element) -> str:
     Iterates every w:t element — including those inside hyperlinks,
     tracked insertions, etc. — and concatenates them.
     """
-    return ''.join(t.text or '' for t in para.iter(f'{WQ}t')).strip()
+    return "".join(t.text or "" for t in para.iter(f"{WQ}t")).strip()
 
 
 def _is_comment_ref_run(el: etree._Element) -> bool:
     """True if this w:r element is a comment-reference run (contains w:commentReference)."""
-    return el.tag == f'{WQ}r' and el.find(f'{WQ}commentReference') is not None
+    return el.tag == f"{WQ}r" and el.find(f"{WQ}commentReference") is not None
 
 
 def _collect_ref_paragraphs(
@@ -134,9 +138,8 @@ def _collect_ref_paragraphs(
     style_names = style_names or {}
 
     def _is_heading(style_val: str) -> bool:
-        return (
-            style_val.startswith("Heading")
-            or style_names.get(style_val, "").startswith("heading")
+        return style_val.startswith("Heading") or style_names.get(style_val, "").startswith(
+            "heading"
         )
 
     in_refs = False
@@ -144,7 +147,7 @@ def _collect_ref_paragraphs(
 
     for para in body_paras:
         style = _para_style(para)
-        text  = _para_plain_text(para)
+        text = _para_plain_text(para)
 
         if _is_heading(style) and normalise_heading(text) in _REFERENCE_HEADING_TEXTS:
             in_refs = True
@@ -161,7 +164,8 @@ def _collect_ref_paragraphs(
 
     # Fallback: year + length heuristic
     return [
-        p for _s, p in window
+        p
+        for _s, p in window
         if len(_para_plain_text(p)) > 20 and bool(_YEAR_RE.search(_para_plain_text(p)))
     ]
 
@@ -184,9 +188,9 @@ def _apply_del_ins(
 
     Returns the updated change_id counter.
     """
-    pPr = para.find(f'{WQ}pPr')
+    pPr = para.find(f"{WQ}pPr")
 
-    to_keep:   list[etree._Element] = []
+    to_keep: list[etree._Element] = []
     to_remove: list[etree._Element] = []
 
     for child in para:
@@ -206,125 +210,126 @@ def _apply_del_ins(
     opcodes = matcher.get_opcodes()
 
     for tag, i1, i2, j1, j2 in opcodes:
-        if tag == 'equal':
+        if tag == "equal":
             chunk = old_text[i1:i2]
             if chunk:
-                r = etree.SubElement(para, f'{WQ}r')
-                t = etree.SubElement(r, f'{WQ}t')
+                r = etree.SubElement(para, f"{WQ}r")
+                t = etree.SubElement(r, f"{WQ}t")
                 t.text = chunk
-                t.set(_XML_SPACE, 'preserve')
-        elif tag == 'delete':
+                t.set(_XML_SPACE, "preserve")
+        elif tag == "delete":
             chunk = old_text[i1:i2]
             if chunk:
-                del_el = etree.SubElement(para, f'{WQ}del')
-                del_el.set(f'{WQ}id', str(current_change_id))
-                del_el.set(f'{WQ}author', AUTHOR)
-                del_el.set(f'{WQ}date', DATE)
+                del_el = etree.SubElement(para, f"{WQ}del")
+                del_el.set(f"{WQ}id", str(current_change_id))
+                del_el.set(f"{WQ}author", AUTHOR)
+                del_el.set(f"{WQ}date", DATE)
                 current_change_id += 1
 
-                r = etree.SubElement(del_el, f'{WQ}r')
-                dt = etree.SubElement(r, f'{WQ}delText')
+                r = etree.SubElement(del_el, f"{WQ}r")
+                dt = etree.SubElement(r, f"{WQ}delText")
                 dt.text = chunk
-                dt.set(_XML_SPACE, 'preserve')
-        elif tag == 'insert':
+                dt.set(_XML_SPACE, "preserve")
+        elif tag == "insert":
             chunk = new_text[j1:j2]
             if chunk:
                 if url and url in chunk and url_rid:
                     parts = chunk.split(url)
                     for idx, part in enumerate(parts):
                         if part:
-                            ins_el = etree.SubElement(para, f'{WQ}ins')
-                            ins_el.set(f'{WQ}id', str(current_change_id))
-                            ins_el.set(f'{WQ}author', AUTHOR)
-                            ins_el.set(f'{WQ}date', DATE)
+                            ins_el = etree.SubElement(para, f"{WQ}ins")
+                            ins_el.set(f"{WQ}id", str(current_change_id))
+                            ins_el.set(f"{WQ}author", AUTHOR)
+                            ins_el.set(f"{WQ}date", DATE)
                             current_change_id += 1
 
-                            r = etree.SubElement(ins_el, f'{WQ}r')
-                            t = etree.SubElement(r, f'{WQ}t')
+                            r = etree.SubElement(ins_el, f"{WQ}r")
+                            t = etree.SubElement(r, f"{WQ}t")
                             t.text = part
-                            t.set(_XML_SPACE, 'preserve')
+                            t.set(_XML_SPACE, "preserve")
                         if idx < len(parts) - 1:
-                            hl = etree.SubElement(para, f'{WQ}hyperlink')
-                            hl.set(f'{_R_NS_Q}id', url_rid)
-                            hl.set(f'{WQ}history', '1')
+                            hl = etree.SubElement(para, f"{WQ}hyperlink")
+                            hl.set(f"{_R_NS_Q}id", url_rid)
+                            hl.set(f"{WQ}history", "1")
 
-                            hl_ins = etree.SubElement(hl, f'{WQ}ins')
-                            hl_ins.set(f'{WQ}id', str(current_change_id))
-                            hl_ins.set(f'{WQ}author', AUTHOR)
-                            hl_ins.set(f'{WQ}date', DATE)
+                            hl_ins = etree.SubElement(hl, f"{WQ}ins")
+                            hl_ins.set(f"{WQ}id", str(current_change_id))
+                            hl_ins.set(f"{WQ}author", AUTHOR)
+                            hl_ins.set(f"{WQ}date", DATE)
                             current_change_id += 1
 
-                            hl_run = etree.SubElement(hl_ins, f'{WQ}r')
-                            hl_rPr = etree.SubElement(hl_run, f'{WQ}rPr')
-                            hl_style = etree.SubElement(hl_rPr, f'{WQ}rStyle')
-                            hl_style.set(f'{WQ}val', 'Hyperlink')
-                            hl_color = etree.SubElement(hl_rPr, f'{WQ}color')
-                            hl_color.set(f'{WQ}val', '000000')
+                            hl_run = etree.SubElement(hl_ins, f"{WQ}r")
+                            hl_rPr = etree.SubElement(hl_run, f"{WQ}rPr")
+                            hl_style = etree.SubElement(hl_rPr, f"{WQ}rStyle")
+                            hl_style.set(f"{WQ}val", "Hyperlink")
+                            hl_color = etree.SubElement(hl_rPr, f"{WQ}color")
+                            hl_color.set(f"{WQ}val", "000000")
 
-                            hl_t = etree.SubElement(hl_run, f'{WQ}t')
+                            hl_t = etree.SubElement(hl_run, f"{WQ}t")
                             hl_t.text = url
-                            hl_t.set(_XML_SPACE, 'preserve')
+                            hl_t.set(_XML_SPACE, "preserve")
                 else:
-                    ins_el = etree.SubElement(para, f'{WQ}ins')
-                    ins_el.set(f'{WQ}id', str(current_change_id))
-                    ins_el.set(f'{WQ}author', AUTHOR)
-                    ins_el.set(f'{WQ}date', DATE)
+                    ins_el = etree.SubElement(para, f"{WQ}ins")
+                    ins_el.set(f"{WQ}id", str(current_change_id))
+                    ins_el.set(f"{WQ}author", AUTHOR)
+                    ins_el.set(f"{WQ}date", DATE)
                     current_change_id += 1
 
-                    r = etree.SubElement(ins_el, f'{WQ}r')
-                    t = etree.SubElement(r, f'{WQ}t')
+                    r = etree.SubElement(ins_el, f"{WQ}r")
+                    t = etree.SubElement(r, f"{WQ}t")
                     t.text = chunk
-                    t.set(_XML_SPACE, 'preserve')
-        elif tag == 'replace':
+                    t.set(_XML_SPACE, "preserve")
+        elif tag == "replace":
             old_chunk = old_text[i1:i2]
             new_chunk = new_text[j1:j2]
             if old_chunk:
-                del_el = etree.SubElement(para, f'{WQ}del')
-                del_el.set(f'{WQ}id', str(current_change_id))
-                del_el.set(f'{WQ}author', AUTHOR)
-                del_el.set(f'{WQ}date', DATE)
+                del_el = etree.SubElement(para, f"{WQ}del")
+                del_el.set(f"{WQ}id", str(current_change_id))
+                del_el.set(f"{WQ}author", AUTHOR)
+                del_el.set(f"{WQ}date", DATE)
                 current_change_id += 1
 
-                r = etree.SubElement(del_el, f'{WQ}r')
-                dt = etree.SubElement(r, f'{WQ}delText')
+                r = etree.SubElement(del_el, f"{WQ}r")
+                dt = etree.SubElement(r, f"{WQ}delText")
                 dt.text = old_chunk
-                dt.set(_XML_SPACE, 'preserve')
+                dt.set(_XML_SPACE, "preserve")
             if new_chunk:
                 if url and url in new_chunk and url_rid:
                     parts = new_chunk.split(url)
                     for idx, part in enumerate(parts):
                         if part:
-                            ins_el = etree.SubElement(para, f'{WQ}ins')
-                            ins_el.set(f'{WQ}id', str(current_change_id))
-                            ins_el.set(f'{WQ}author', AUTHOR)
-                            ins_el.set(f'{WQ}date', DATE)
+                            ins_el = etree.SubElement(para, f"{WQ}ins")
+                            ins_el.set(f"{WQ}id", str(current_change_id))
+                            ins_el.set(f"{WQ}author", AUTHOR)
+                            ins_el.set(f"{WQ}date", DATE)
                             current_change_id += 1
 
-                            r = etree.SubElement(ins_el, f'{WQ}r')
-                            t = etree.SubElement(r, f'{WQ}t')
+                            r = etree.SubElement(ins_el, f"{WQ}r")
+                            t = etree.SubElement(r, f"{WQ}t")
                             t.text = part
-                            t.set(_XML_SPACE, 'preserve')
+                            t.set(_XML_SPACE, "preserve")
                         if idx < len(parts) - 1:
-                            hl = etree.SubElement(para, f'{WQ}hyperlink')
-                            hl.set(f'{_R_NS_Q}id', url_rid)
-                            hl.set(f'{WQ}history', '1')
+                            hl = etree.SubElement(para, f"{WQ}hyperlink")
+                            hl.set(f"{_R_NS_Q}id", url_rid)
+                            hl.set(f"{WQ}history", "1")
 
-                            hl_ins = etree.SubElement(hl, f'{WQ}ins')
-                            hl_ins.set(f'{WQ}id', str(current_change_id))
-                            hl_ins.set(f'{WQ}author', AUTHOR)
-                            hl_ins.set(f'{WQ}date', DATE)
+                            hl_ins = etree.SubElement(hl, f"{WQ}ins")
+                            hl_ins.set(f"{WQ}id", str(current_change_id))
+                            hl_ins.set(f"{WQ}author", AUTHOR)
+                            hl_ins.set(f"{WQ}date", DATE)
                             current_change_id += 1
 
-                            hl_run = etree.SubElement(hl_ins, f'{WQ}r')
-                            hl_rPr = etree.SubElement(hl_run, f'{WQ}rPr')
-                            hl_style = etree.SubElement(hl_rPr, f'{WQ}rStyle')
-                            hl_style.set(f'{WQ}val', 'Hyperlink')
-                            hl_color = etree.SubElement(hl_rPr, f'{WQ}rPr') # (or color subelement)
-                            # ... standard hyperlink tracking ...
+                            hl_run = etree.SubElement(hl_ins, f"{WQ}r")
+                            hl_rPr = etree.SubElement(hl_run, f"{WQ}rPr")
+                            hl_style = etree.SubElement(hl_rPr, f"{WQ}rStyle")
+                            hl_style.set(f"{WQ}val", "Hyperlink")
+                            hl_color = etree.SubElement(hl_rPr, f"{WQ}color")
+                            hl_color.set(f"{WQ}val", "000000")
+
+    return current_change_id
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
-
 def apply_reference_format_corrections(
     input_path: str,
     output_path: str,
@@ -358,17 +363,17 @@ def apply_reference_format_corrections(
     # ── Build entry_num → (reconstructed, format_issues) map ──────────────────
     correction_map: dict[int, tuple[str, list[str]]] = {}
     for r in ref_results:
-        rule_id       = r.get('rule_id', '')
-        reconstructed = r.get('reconstructed', '')
-        format_issues = r.get('format_issues', [])
+        rule_id = r.get("rule_id", "")
+        reconstructed = r.get("reconstructed", "")
+        format_issues = r.get("format_issues", [])
 
         if not reconstructed or not format_issues:
             continue
-        if not rule_id.startswith('CREF'):
+        if not rule_id.startswith("CREF"):
             continue
 
         # Extract the numeric part after "CREF" (e.g. "CREF003" -> 3)
-        num_str = rule_id[4:].split('_')[0]
+        num_str = rule_id[4:].split("_")[0]
         if not num_str.isdigit():
             continue
 
@@ -378,16 +383,16 @@ def apply_reference_format_corrections(
         return next_change_id, []
 
     # ── Load document.xml and the relationship file ───────────────────────────
-    _RELS_PATH = 'word/_rels/document.xml.rels'
-    with zipfile.ZipFile(input_path, 'r') as z:
-        doc_xml  = z.read('word/document.xml')
+    _RELS_PATH = "word/_rels/document.xml.rels"
+    with zipfile.ZipFile(input_path, "r") as z:
+        doc_xml = z.read("word/document.xml")
         rels_xml = z.read(_RELS_PATH) if _RELS_PATH in z.namelist() else None
-        styles_xml = z.read('word/styles.xml') if 'word/styles.xml' in z.namelist() else None
+        styles_xml = z.read("word/styles.xml") if "word/styles.xml" in z.namelist() else None
 
     style_names = _build_style_name_map(styles_xml)
 
     doc_root = etree.fromstring(doc_xml)
-    body     = doc_root.find(f'{WQ}body')
+    body = doc_root.find(f"{WQ}body")
     if body is None:
         return next_change_id, []
 
@@ -401,25 +406,25 @@ def apply_reference_format_corrections(
         )
 
     existing_ids = [
-        int(rel.get('Id', 'rId0')[3:])
+        int(rel.get("Id", "rId0")[3:])
         for rel in rels_root
-        if rel.get('Id', '').startswith('rId') and rel.get('Id', '')[3:].isdigit()
+        if rel.get("Id", "").startswith("rId") and rel.get("Id", "")[3:].isdigit()
     ]
     next_rid = max(existing_ids, default=0) + 1
 
     def _add_hyperlink_rel(url: str) -> str:
         nonlocal next_rid
-        rid = f'rId{next_rid}'
+        rid = f"rId{next_rid}"
         next_rid += 1
-        rel = etree.SubElement(rels_root, 'Relationship')
-        rel.set('Id',         rid)
-        rel.set('Type',       _HL_TYPE)
-        rel.set('Target',     url)
-        rel.set('TargetMode', 'External')
+        rel = etree.SubElement(rels_root, "Relationship")
+        rel.set("Id", rid)
+        rel.set("Type", _HL_TYPE)
+        rel.set("Target", url)
+        rel.set("TargetMode", "External")
         return rid
 
-    body_paras = [el for el in body if el.tag == f'{WQ}p']
-    ref_paras  = _collect_ref_paragraphs(body_paras, style_names)
+    body_paras = [el for el in body if el.tag == f"{WQ}p"]
+    ref_paras = _collect_ref_paragraphs(body_paras, style_names)
 
     corrections: list[dict] = []
     rels_modified = False
@@ -436,13 +441,13 @@ def apply_reference_format_corrections(
 
         # Skip paragraphs that already have a tracked change from a previous
         # pass — this avoids double-wrapping if the pipeline ever runs twice.
-        if para.find(f'{WQ}del') is not None or para.find(f'{WQ}ins') is not None:
+        if para.find(f"{WQ}del") is not None or para.find(f"{WQ}ins") is not None:
             continue
 
         # Detect a URL in the reconstructed text
         url_match = _URL_RE.search(reconstructed)
         if url_match:
-            url     = url_match.group(0).rstrip('.')
+            url = url_match.group(0).rstrip(".")
             url_rid = _add_hyperlink_rel(url)
             rels_modified = True
             next_change_id = _apply_del_ins(
@@ -461,36 +466,37 @@ def apply_reference_format_corrections(
                 current_change_id=next_change_id,
             )
 
-        corrections.append({
-            'type':          'ref_format',
-            'entry_num':     entry_num,
-            'format_issues': format_issues,
-            'description':   (
-                f'Entry {entry_num}: APA 7 format corrected '
-                f'({"; ".join(format_issues)})'
-            ),
-        })
+        corrections.append(
+            {
+                "type": "ref_format",
+                "entry_num": entry_num,
+                "format_issues": format_issues,
+                "description": (
+                    f"Entry {entry_num}: APA 7 format corrected ({'; '.join(format_issues)})"
+                ),
+            }
+        )
 
     if not corrections:
         return next_change_id, []
 
     # ── Serialise modified XML ─────────────────────────────────────────────────
-    new_doc_xml  = etree.tostring(
-        doc_root, xml_declaration=True, encoding='UTF-8', standalone=True
+    new_doc_xml = etree.tostring(doc_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    new_rels_xml = (
+        etree.tostring(rels_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+        if rels_modified
+        else None
     )
-    new_rels_xml = etree.tostring(
-        rels_root, xml_declaration=True, encoding='UTF-8', standalone=True
-    ) if rels_modified else None
 
     # ── Write corrected files back into a new zip ─────────────────────────────
-    tmp = output_path + '.refmt.tmp'
+    tmp = output_path + ".refmt.tmp"
     try:
         with (
-            zipfile.ZipFile(input_path, 'r') as zin,
-            zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout,
+            zipfile.ZipFile(input_path, "r") as zin,
+            zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout,
         ):
             for item in zin.infolist():
-                if item.filename == 'word/document.xml':
+                if item.filename == "word/document.xml":
                     zout.writestr(item, new_doc_xml)
                 elif item.filename == _RELS_PATH and new_rels_xml is not None:
                     zout.writestr(item, new_rels_xml)

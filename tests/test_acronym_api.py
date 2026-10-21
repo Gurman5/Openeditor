@@ -18,11 +18,16 @@ flask = pytest.importorskip("flask")
 def client(tmp_path, monkeypatch):
     """Boot the Flask app with auth disabled and the store pointed at tmp."""
     monkeypatch.delenv("APP_PASSWORD", raising=False)  # disable auth gate
+    # G-07 access gate (access_validation.check_access) denies these endpoints
+    # unless a local-dev bypass or a provider credential is present.
+    monkeypatch.setenv("SKIP_AUTH", "true")
     monkeypatch.setenv("ACRONYM_DB_PATH", str(tmp_path / "acronyms.json"))
     # Reload so the store picks up the env override.
     from app.services import acronym_store
+
     reload(acronym_store)
     from app import main as main_module
+
     reload(main_module)
     main_module.app.config["TESTING"] = True
     return main_module.app.test_client()
@@ -33,9 +38,7 @@ def test_get_lists_seeded_acronyms(client):
     assert res.status_code == 200
     data = res.get_json()
     assert "LMS" in data["acronyms"]
-    assert data["acronyms"]["TEQSA"] == [
-        "Tertiary Education Quality and Standards Authority"
-    ]
+    assert data["acronyms"]["TEQSA"] == ["Tertiary Education Quality and Standards Authority"]
 
 
 def test_post_adds_an_entry(client):
@@ -92,12 +95,17 @@ def test_admin_page_renders(client):
 def gated_client(tmp_path, monkeypatch):
     """Boot the app with the editor-password gate enabled."""
     monkeypatch.delenv("APP_PASSWORD", raising=False)
+    # Bypass the G-07 access gate so the tests below exercise the acronym
+    # editor gate in isolation, not the app-level access check.
+    monkeypatch.setenv("SKIP_AUTH", "true")
     monkeypatch.setenv("ACRONYM_DB_PATH", str(tmp_path / "acronyms.json"))
     monkeypatch.setenv("ACRONYM_ADMIN_PASSWORD", "letmein")
     monkeypatch.setenv("SECRET_KEY", "test-key-123")
     from app.services import acronym_store
+
     reload(acronym_store)
     from app import main as main_module
+
     reload(main_module)
     main_module.app.config["TESTING"] = True
     return main_module.app.test_client()

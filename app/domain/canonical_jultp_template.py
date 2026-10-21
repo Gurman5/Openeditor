@@ -75,7 +75,7 @@ CANONICAL_STRUCTURE = {
         "Method",
         "Results",
         "Discussion",
-        "Conclusion",   # allow alias later
+        "Conclusion",  # allow alias later
         "Acknowledgements",
         "References",
     ],
@@ -138,8 +138,8 @@ CANONICAL_STRUCTURE = {
             "Study Results",
             "Results and Findings",
             "Findings and Results",
-            "Results and Discussion",      # combined — detected, not renamed
-            "Findings and Discussion",     # combined — detected, not renamed
+            "Results and Discussion",  # combined — detected, not renamed
+            "Findings and Discussion",  # combined — detected, not renamed
         ],
         "Discussion": [
             "Discussions",
@@ -175,17 +175,49 @@ CANONICAL_STRUCTURE = {
         ],
     },
     "missing_section_queries": {
+        # JB-07: wording aligned to Joey's reviewer phrasing (2026-10).
+        # Applied to every main section so the validator and Sam's structural
+        # pass agree; Sam's duplicates are stripped by comment dedup, so the
+        # author consistently sees one comment in this shape.
+        "Introduction": (
+            "We expected to see an Introduction heading and an Introduction "
+            "section; however, the bot couldn't find that. Please check your "
+            "manuscript includes an Introduction section."
+        ),
         "Literature": (
-            "House policy: The section immediately following the Introduction "
-            "should be entitled Literature and use a Heading Level 1 style."
+            "We expected to see a Literature heading and Literature section; "
+            "however, the bot couldn't find that. Please check your manuscript "
+            "includes a Literature section."
         ),
         "Method": (
-            "House policy: The section immediately following the Literature "
-            "should be entitled Method and use a Heading Level 1 style."
+            "We expected to see a Method heading and Method section; however, "
+            "the bot couldn't find that. Please check your manuscript includes "
+            "a Method section."
         ),
         "Results": (
-            "House policy: The section immediately following the Method "
-            "should be entitled Results and use a Heading Level 1 style."
+            "We expected to see a Results heading and Results section; "
+            "however, the bot couldn't find that. Please check your manuscript "
+            "includes a Results section."
+        ),
+        "Discussion": (
+            "We expected to see a Discussion heading and Discussion section; "
+            "however, the bot couldn't find that. Please check your manuscript "
+            "includes a Discussion section."
+        ),
+        "Conclusion": (
+            "We expected to see a Conclusion heading and Conclusion section; "
+            "however, the bot couldn't find that. Please check your manuscript "
+            "includes a Conclusion section."
+        ),
+        "Acknowledgements": (
+            "We expected to see an Acknowledgements heading and "
+            "Acknowledgements section; however, the bot couldn't find that. "
+            "Please check your manuscript includes an Acknowledgements section."
+        ),
+        "References": (
+            "We expected to see a References heading and References section; "
+            "however, the bot couldn't find that. Please check your manuscript "
+            "includes a References section."
         ),
     },
     "combined_results_discussion_query": (
@@ -283,7 +315,7 @@ CANONICAL_STRUCTURE = {
     "special_rules": {
         "separate_results_and_discussion": True,
         "page_break_before_references": True,
-    }
+    },
 }
 
 
