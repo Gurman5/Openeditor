@@ -2,7 +2,6 @@ import zipfile
 from unittest.mock import patch
 
 from docx import Document
-from docx.enum.section import WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -15,7 +14,6 @@ from app.services.document_analysis_services import load_paragraphs
 from app.services.language_corrections import WQ
 from app.services.output_generation_samfix import (
     AFFILIATIONS_REQUIRED_STYLE_ID,
-    AUTHORS_REQUIRED_STYLE_ID,
     CITATION_FOOTER_STYLE_ID,
     KEYWORDS_REQUIRED_HEADING_STYLE_ID,
     KEYWORDS_REQUIRED_TEXT_STYLE_ID,
@@ -470,6 +468,71 @@ def test_existing_authors_missing_affiliations_get_comment_not_placeholder(tmp_p
     paragraphs = load_paragraphs(str(output_path))
     assert all("Affiliation 1" not in p.text and "Affiliation 2" not in p.text for p in paragraphs)
     assert any("Author affiliations section was not found" in text for text in _comment_texts(output_path))
+
+
+def test_insert_default_authors_plan_is_inert(tmp_path):
+    """Belt-and-braces: even a hand-built insert_default_authors plan must
+    not write anything — the apply branch is disabled (JB-02)."""
+    input_path = tmp_path / "input.docx"
+    output_path = tmp_path / "output.docx"
+
+    doc = Document()
+    doc.styles.add_style("Authors", WD_STYLE_TYPE.PARAGRAPH)
+    doc.styles.add_style("Author Affiliations", WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_paragraph("Example article title")
+    doc.add_paragraph("Abstract")
+    doc.save(input_path)
+
+    plan = {
+        "action": "insert_default_authors",
+        "message": "Default author placeholders inserted because authors were not found.",
+        "anchor_pos": 0,
+        "insert_pos": 1,
+        "reason": "Authors not found on front page",
+        "corrected_authors_line": "First Author^a, Second Author^a, and Third Author^b",
+        "default_affiliations": ("a Affiliation 1; b Affiliation 2",),
+        "authors_style_ok": True,
+        "authors_current_style": "",
+    }
+    assert _apply_author_plan(str(input_path), str(output_path), plan) is False
+    assert output_path.exists() is False
+
+
+@patch("app.services.output_generation_samfix.call_llm_json")
+def test_full_run_never_inserts_author_placeholders(mock_llm, tmp_path):
+    """JB-02 end-to-end: a document with no authors line and no affiliations
+    must come out with no placeholder author/affiliation text and no
+    placeholder comments."""
+    input_path = tmp_path / "input.docx"
+    output_path = tmp_path / "output.docx"
+
+    doc = Document()
+    doc.add_paragraph("Example article title")
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("This is the abstract body.")
+    doc.add_paragraph("Introduction").style = "Heading 1"
+    doc.add_paragraph("Body text.")
+    doc.add_paragraph("References").style = "Heading 1"
+    doc.add_paragraph("Smith, J. (2025). Example.")
+    doc.save(input_path)
+
+    mock_llm.side_effect = Exception("skip llm")
+    with patch("app.services.output_generation_samfix.build_body_edit_plan") as mock_body:
+        mock_body.return_value = {"action": "none", "edits": []}
+        with patch(
+            "app.services.output_generation_samfix.build_editorial_review_comment_plan"
+        ) as mock_review:
+            mock_review.return_value = {"action": "none", "comments": []}
+            build_edited_document(str(input_path), str(output_path))
+
+    paragraphs = [p.text for p in load_paragraphs(str(output_path))]
+    all_text = "\n".join(paragraphs)
+    assert "First Author" not in all_text
+    assert "Affiliation 1" not in all_text
+    assert "Affiliation 2" not in all_text
+    comments = _comment_texts(output_path)
+    assert not any("placeholder author" in text.lower() for text in comments)
+    assert not any("placeholder affiliation" in text.lower() for text in comments)
 
 
 def test_author_naming_rejects_multiple_affiliation_markers():

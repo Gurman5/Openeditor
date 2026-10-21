@@ -1638,17 +1638,48 @@ def authorFormatCheck(docxpath, author_state):
     global auth_start_pos, auth_end_pos
 
     if author_state["authors_present"] is False:
-        # JB-02 keep the manually placed author name and
-        # affiliation (e.g. "Michael Cowling and Joshua Newn, RMIT University").
-        # The function that *adds* an Authors/Affiliations requirement is
-        # intentionally INACTIVE — no "First Author^…" placeholder block and no
-        # default-affiliation paragraph are inserted. FP002/FP003 still report
-        # the missing block as comments.
+        # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+        # manually placed author name and affiliation exactly as authored (e.g.
+        # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+        # "First Author^a…" placeholder blocks. Missing author/affiliation is
+        # covered by FP002/FP003 comment-only flags; they still report the
+        # missing block as comments.
         #
-        # Previous behaviour (commented out, not deleted):
-        #   existing_affiliations = _find_existing_affiliations_for_missing_authors(...)
-        #   ... plan = {"action": "insert_default_authors", ...}
-        #   ... plan = {"action": "insert_default_authors", ..., "corrected_authors_line": DEFAULT_AUTHORS_LINE, ...}
+        # Previous behaviour (commented out, not deleted; Joey may want this
+        # behind a flag later):
+        #     existing_affiliations = _find_existing_affiliations_for_missing_authors(
+        #         docxpath,
+        #         author_state["title_idx"],
+        #     )
+        #     if existing_affiliations is not None:
+        #         markers = existing_affiliations["markers"]
+        #         default_affiliations = ()
+        #         plan = {
+        #             "action": "insert_default_authors",
+        #             "message": "Default author placeholders inserted because authors were not found.",
+        #             "anchor_pos": author_state["anchor_pos"],
+        #             "insert_pos": existing_affiliations["first_pos"],
+        #             "reason": "Authors not found on front page",
+        #             "corrected_authors_line": _default_authors_line_for_markers(markers),
+        #             "default_affiliations": default_affiliations,
+        #             "authors_style_ok": True,
+        #             "authors_current_style": "",
+        #         }
+        #         if len(markers) == 1:
+        #             plan["append_affiliation_pos"] = existing_affiliations["last_pos"]
+        #             plan["append_affiliation_text"] = f"{_next_default_marker(markers[0])} Affiliation 2"
+        #         return plan
+        #
+        #     return {
+        #         "action": "insert_default_authors",
+        #         "message": "Default author placeholders inserted because authors were not found.",
+        #         "anchor_pos": author_state["anchor_pos"],
+        #         "reason": "Authors not found on front page",
+        #         "corrected_authors_line": DEFAULT_AUTHORS_LINE,
+        #         "default_affiliations": DEFAULT_AUTHOR_AFFILIATIONS,
+        #         "authors_style_ok": True,
+        #         "authors_current_style": "",
+        #     }
         return {
             "action": "none",
             "reason": "Authors not found on front page (placeholder insertion disabled)",
@@ -2648,6 +2679,11 @@ def abstractFormatCheck(docxpath, abstract_state):
         message = "Missing 'Abstract' heading on the front page after author affiliations."
         deidentified = _is_deidentified_manuscript(docxpath, abstract_state)
         default_affiliations_insert_pos = abstract_state["anchor_pos"]
+        # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+        # manually placed author name and affiliation exactly as authored (e.g.
+        # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+        # "First Author^a…" placeholder blocks. Missing author/affiliation is
+        # covered by FP002/FP003 comment-only flags.
         # JB-02 (Joey revision): default-affiliation insertion disabled
         # if abstract_state["affiliations_found"] is False and not deidentified:
         #     default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
@@ -2671,6 +2707,11 @@ def abstractFormatCheck(docxpath, abstract_state):
     if abstract_state["affiliations_found"] is False:
         # Suppress the missing-affiliations query on deliberately deidentified
         # manuscripts (blinded peer review).
+        # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+        # manually placed author name and affiliation exactly as authored (e.g.
+        # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+        # "First Author^a…" placeholder blocks. Missing author/affiliation is
+        # covered by FP002/FP003 comment-only flags.
         # JB-02 (Joey revision): do NOT insert placeholder affiliations
         # keep the author's manually placed affiliations. Just note the absence.
         #   default_affiliations_text = _default_affiliations_text_for_authors(docxpath)
@@ -6768,64 +6809,71 @@ def _apply_author_plan(input_path, output_path, plan):
         new_xml = etree.tostring(doc.element, xml_declaration=True, encoding="UTF-8", standalone=True)
         _save_doc_xml_to_zip(src_path, output_path, new_xml)
 
-    if action == "insert_default_authors":
-        insert_at = min(plan.get("insert_pos", anchor + 1), len(doc.paragraphs))
-        _remove_blank_paragraph_at_index(doc, insert_at)
-        _insert_paragraph_at_index(
-            doc,
-            insert_at,
-            _make_plain_styled_paragraph(
-                plan["corrected_authors_line"],
-                AUTHORS_REQUIRED_STYLE_ID,
-            ),
-        )
-        append_pos = plan.get("append_affiliation_pos")
-        if append_pos is not None:
-            if append_pos >= insert_at:
-                append_pos += 1
-            if append_pos < len(doc.paragraphs):
-                paragraph = doc.paragraphs[append_pos]
-                new_text = _append_affiliation_before_notes(
-                    paragraph.text,
-                    plan.get("append_affiliation_text", ""),
-                )
-                _remove_paragraph_content_keep_style(paragraph._element)
-                _append_text_with_line_breaks(paragraph._element, new_text)
-
-        affiliations_insert_at = plan.get("affiliations_insert_pos")
-        if affiliations_insert_at is None:
-            affiliations_insert_at = insert_at + 1
-        elif affiliations_insert_at > insert_at:
-            affiliations_insert_at += 1
-        for i, line in enumerate(plan.get("default_affiliations", []), start=1):
-            _insert_paragraph_at_index(
-                doc,
-                affiliations_insert_at + i - 1,
-                _make_plain_styled_paragraph(line, AFFILIATIONS_REQUIRED_STYLE_ID),
-            )
-
-        _flush(current_input_path)
-        _write_single_comment_docx(
-            input_path=output_path,
-            output_path=output_path,
-            paragraph_index=insert_at,
-            message="Replace these placeholder author names with the correct author list.",
-        )
-        if len(plan.get("default_affiliations", [])) > 0:
-            _write_single_comment_docx(
-                input_path=output_path,
-                output_path=output_path,
-                paragraph_index=affiliations_insert_at,
-                message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
-            )
-        elif append_pos is not None:
-            _write_single_comment_docx(
-                input_path=output_path,
-                output_path=output_path,
-                paragraph_index=append_pos,
-                message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
-            )
-        return True
+    # > Joey: placeholder author/affiliation insertion is inactive (JB-02).
+    # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+    # manually placed author name and affiliation exactly as authored (e.g.
+    # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+    # "First Author^a…" placeholder blocks — FP002/FP003 carry the
+    # missing-block messaging. Guard stays commented out (not deleted); even a
+    # hand-built plan must not insert. Joey may want this behind a flag later.
+    # if action == "insert_default_authors":
+    #     insert_at = min(plan.get("insert_pos", anchor + 1), len(doc.paragraphs))
+    #     _remove_blank_paragraph_at_index(doc, insert_at)
+    #     _insert_paragraph_at_index(
+    #         doc,
+    #         insert_at,
+    #         _make_plain_styled_paragraph(
+    #             plan["corrected_authors_line"],
+    #             AUTHORS_REQUIRED_STYLE_ID,
+    #         ),
+    #     )
+    #     append_pos = plan.get("append_affiliation_pos")
+    #     if append_pos is not None:
+    #         if append_pos >= insert_at:
+    #             append_pos += 1
+    #         if append_pos < len(doc.paragraphs):
+    #             paragraph = doc.paragraphs[append_pos]
+    #             new_text = _append_affiliation_before_notes(
+    #                 paragraph.text,
+    #                 plan.get("append_affiliation_text", ""),
+    #             )
+    #             _remove_paragraph_content_keep_style(paragraph._element)
+    #             _append_text_with_line_breaks(paragraph._element, new_text)
+    #
+    #     affiliations_insert_at = plan.get("affiliations_insert_pos")
+    #     if affiliations_insert_at is None:
+    #         affiliations_insert_at = insert_at + 1
+    #     elif affiliations_insert_at > insert_at:
+    #         affiliations_insert_at += 1
+    #     for i, line in enumerate(plan.get("default_affiliations", []), start=1):
+    #         _insert_paragraph_at_index(
+    #             doc,
+    #             affiliations_insert_at + i - 1,
+    #             _make_plain_styled_paragraph(line, AFFILIATIONS_REQUIRED_STYLE_ID),
+    #         )
+    #
+    #     _flush(current_input_path)
+    #     _write_single_comment_docx(
+    #         input_path=output_path,
+    #         output_path=output_path,
+    #         paragraph_index=insert_at,
+    #         message="Replace these placeholder author names with the correct author list.",
+    #     )
+    #     if len(plan.get("default_affiliations", [])) > 0:
+    #         _write_single_comment_docx(
+    #             input_path=output_path,
+    #             output_path=output_path,
+    #             paragraph_index=affiliations_insert_at,
+    #             message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
+    #         )
+    #     elif append_pos is not None:
+    #         _write_single_comment_docx(
+    #             input_path=output_path,
+    #             output_path=output_path,
+    #             paragraph_index=append_pos,
+    #             message="Replace these placeholder affiliations with the authors' correct institutional affiliations.",
+    #         )
+    #     return True
 
     if action == "replace_in_place":
         if anchor < len(doc.paragraphs):
@@ -6972,7 +7020,14 @@ def _apply_abstract_plan(input_path, output_path, abstract_plan):
         if style_applied is True:
             current_input_path = output_path
             applied_any = True
-    # JB-02 (Joey revision): default-affiliation insertion call path disabled.
+    # Disabled per Joey's reviewer instruction (2026-10): the tool must keep
+    # manually placed author name and affiliation exactly as authored (e.g.
+    # Michael Cowling and Joshua Newn, RMIT University) and must not inject
+    # "First Author^a…" placeholder blocks. Missing author/affiliation is
+    # covered by FP002/FP003 comment-only flags.
+    
+    # ? JB-02 (Joey revision): default-affiliation insertion call path disabled.
+    #
     # if abstract_plan.get("insert_default_affiliations") is True:
     #     affiliation_text = str(abstract_plan.get("default_affiliations_text", "")).strip()
     #     if affiliation_text != "":
